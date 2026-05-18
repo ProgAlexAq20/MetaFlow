@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GoalPath Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0F172A;--card:#111827;--card2:#1E293B;
+  --text:#F8FAFC;--muted:#94A3B8;
+  --blue:#38BDF8;--green:#22C55E;--purple:#8B5CF6;--yellow:#FACC15;--red:#EF4444;--orange:#F97316;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4,h5{font-family:'Sora',sans-serif}
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#1E293B;border-radius:99px}
+#root{height:100vh;display:flex;flex-direction:column}
+.font-mono{font-family:'JetBrains Mono',monospace}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.animate-fade{animation:fadeIn 0.35s ease-out}
+.animate-slide{animation:slideUp 0.3s ease-out}
+.page{padding:20px 16px 80px;overflow-y:auto;flex:1}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useCallback, createContext, useContext, useRef } = React;
+
+// ─── Colors / helpers ────────────────────────────────────────────────────────
+const C = {
+  bg:'#0F172A', card:'#111827', card2:'#1E293B',
+  text:'#F8FAFC', muted:'#94A3B8',
+  blue:'#38BDF8', green:'#22C55E', purple:'#8B5CF6',
+  yellow:'#FACC15', red:'#EF4444', orange:'#F97316', pink:'#EC4899',
+};
+
+const clamp = (v,mn,mx)=>Math.max(mn,Math.min(mx,v));
+const generateId = ()=>`${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+const fmt = d=>d.toISOString().split('T')[0];
+
+const calcProgress = (goal) => {
+  switch(goal.progressType){
+    case 'manual': return clamp(goal.currentValue??0,0,100);
+    case 'numeric': return !goal.targetValue?0:clamp(Math.round(((goal.currentValue??0)/goal.targetValue)*100),0,100);
+    case 'tasks': { const t=goal.tasks||[]; return t.length===0?0:clamp(Math.round(t.filter(x=>x.done).length/t.length*100),0,100); }
+    case 'time': {
+      if(!goal.startDate||!goal.endDate) return 0;
+      const s=new Date(goal.startDate),e=new Date(goal.endDate),n=new Date();
+      const total=Math.ceil((e-s)/(1000*60*60*24));
+      if(total<=0)return 100;
+      const elapsed=Math.ceil((n-s)/(1000*60*60*24));
+      return clamp(Math.round(elapsed/total*100),0,100);
+    }
+    default: return 0;
+  }
+};
+
+const daysRemaining = (goal) => {
+  if(!goal.endDate) return null;
+  const end=new Date(goal.endDate);end.setHours(23,59,59);
+  return Math.ceil((end-new Date())/(1000*60*60*24));
+};
+
+const effectiveStatus = (g) => {
+  if(g.status==='completed') return 'completed';
+  if(g.endDate&&new Date(g.endDate)<new Date()&&g.status!=='completed') return 'overdue';
+  return g.status;
+};
+
+const progressColor = (p) => p>=80?C.green:p>=50?C.blue:p>=25?C.yellow:C.red;
+
+const statusMeta = {
+  active:{label:'Ativo',color:C.blue},
+  paused:{label:'Pausado',color:C.yellow},
+  completed:{label:'Concluído',color:C.green},
+  overdue:{label:'Atrasado',color:C.red},
+};
+
+const moodEmojis = {
+  great:{emoji:'😄',label:'Ótimo',color:C.green},
+  good:{emoji:'🙂',label:'Bom',color:C.blue},
+  neutral:{emoji:'😐',label:'Neutro',color:C.muted},
+  bad:{emoji:'😔',label:'Ruim',color:C.yellow},
+  awful:{emoji:'😞',label:'Péssimo',color:C.red},
+};
+
+// ─── Seed Data ────────────────────────────────────────────────────────────────
+const today = new Date();
+const d = (offset) => { const x=new Date(today); x.setDate(x.getDate()+offset); return fmt(x); };
+
+const SEED_CATEGORIES = [
+  {id:'cat_saude',name:'Saúde',color:C.green,icon:'❤️'},
+  {id:'cat_carreira',name:'Carreira',color:C.blue,icon:'💼'},
+  {id:'cat_financas',name:'Finanças',color:C.yellow,icon:'💰'},
+  {id:'cat_educacao',name:'Educação',color:C.purple,icon:'📚'},
+  {id:'cat_pessoal',name:'Desenvolvimento',color:C.orange,icon:'⭐'},
+  {id:'cat_relac',name:'Relacionamentos',color:C.pink,icon:'👥'},
+];
+
+const SEED_GOALS = [
+  {id:'g1',title:'Correr 5km sem parar',description:'Treinar para completar 5km sem parar em 8 semanas.',categoryId:'cat_saude',startDate:d(-30),endDate:d(20),progressType:'tasks',currentValue:0,targetValue:100,priority:'high',status:'active',
+   tasks:[{id:'t1',text:'Semana 1: Correr 1km',done:true},{id:'t2',text:'Semana 2: Correr 2km',done:true},{id:'t3',text:'Semana 3: Correr 3km',done:true},{id:'t4',text:'Semana 4: Correr 4km',done:false},{id:'t5',text:'Semana 5: Correr 5km',done:false}],
+   createdAt:new Date(d(-30)).toISOString(),updatedAt:new Date(d(-2)).toISOString()},
+  {id:'g2',title:'Poupar R$ 10.000',description:'Economizar para reserva de emergência.',categoryId:'cat_financas',startDate:d(-60),endDate:d(120),progressType:'numeric',currentValue:6200,targetValue:10000,priority:'high',status:'active',tasks:[],createdAt:new Date(d(-60)).toISOString(),updatedAt:new Date(d(-1)).toISOString()},
+  {id:'g3',title:'Aprender React avançado',description:'Concluir curso de React com hooks, context e testes.',categoryId:'cat_educacao',startDate:d(-14),endDate:d(46),progressType:'manual',currentValue:40,targetValue:100,priority:'medium',status:'active',tasks:[],createdAt:new Date(d(-14)).toISOString(),updatedAt:today.toISOString()},
+  {id:'g4',title:'Ler 12 livros em 2025',description:'Um livro por mês para expandir conhecimentos.',categoryId:'cat_pessoal',startDate:'2025-01-01',endDate:'2025-12-31',progressType:'numeric',currentValue:7,targetValue:12,priority:'medium',status:'active',tasks:[],createdAt:'2025-01-01T00:00:00Z',updatedAt:new Date(d(-5)).toISOString()},
+  {id:'g5',title:'21 dias de meditação',description:'Criar o hábito de meditação diária.',categoryId:'cat_saude',startDate:d(-25),endDate:d(-4),progressType:'time',currentValue:0,targetValue:100,priority:'low',status:'completed',tasks:[],createdAt:new Date(d(-25)).toISOString(),updatedAt:new Date(d(-4)).toISOString()},
+  {id:'g6',title:'Conseguir promoção',description:'Ser promovido a sênior este trimestre.',categoryId:'cat_carreira',startDate:d(-45),endDate:d(-5),progressType:'manual',currentValue:70,targetValue:100,priority:'high',status:'overdue',tasks:[],createdAt:new Date(d(-45)).toISOString(),updatedAt:new Date(d(-7)).toISOString()},
+];
+
+const SEED_JOURNAL = [
+  {id:'j1',date:fmt(today),mood:'good',text:'Tive um dia bastante produtivo. Avancei no curso de React e completei mais um módulo. À tarde fui treinar e consegui bater meu recorde de distância.',categoryId:'cat_educacao',goalIds:['g3','g1'],createdAt:today.toISOString()},
+  {id:'j2',date:d(-1),mood:'great',text:'Excelente dia! Revisei meu orçamento e estou alinhado com a meta de poupança. Já estou em R$ 6.200 — muito satisfeito com o progresso.',categoryId:'cat_financas',goalIds:['g2'],createdAt:new Date(d(-1)).toISOString()},
+  {id:'j3',date:d(-3),mood:'neutral',text:'Dia corrido, não consegui meditar. Preciso retomar o hábito logo.',categoryId:'cat_saude',goalIds:['g5'],createdAt:new Date(d(-3)).toISOString()},
+  {id:'j4',date:d(-5),mood:'bad',text:'Fiquei sabendo que não vou conseguir a promoção neste trimestre. Decepcionante, mas vou continuar me desenvolvendo.',categoryId:'cat_carreira',goalIds:['g6'],createdAt:new Date(d(-5)).toISOString()},
+  {id:'j5',date:d(-7),mood:'good',text:'Terminei o 7º livro do ano! "O poder do hábito" foi incrível e já me motivou a criar novas rotinas.',categoryId:'cat_pessoal',goalIds:['g4'],createdAt:new Date(d(-7)).toISOString()},
+];
+
+// ─── Context ─────────────────────────────────────────────────────────────────
+const AppCtx = createContext(null);
+const useApp = () => useContext(AppCtx);
+
+const AppProvider = ({children}) => {
+  const [goals, setGoals] = useState(() => SEED_GOALS.map(g=>({...g,status:effectiveStatus(g)})));
+  const [categories, setCategories] = useState(SEED_CATEGORIES);
+  const [journal, setJournal] = useState(SEED_JOURNAL);
+  const [settings, setSettings] = useState({name:'Usuário'});
+  const [page, setPage] = useState('dashboard');
+  const [selGoalId, setSelGoalId] = useState(null);
+
+  const navigate = (p, id=null) => { setPage(p); if(id) setSelGoalId(id); };
+  const selectedGoal = goals.find(g=>g.id===selGoalId)||null;
+
+  const createGoal = (data) => {
+    const g={id:generateId(),tasks:[],...data,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+    setGoals(prev=>[...prev,{...g,status:effectiveStatus(g)}]); return g;
+  };
+  const editGoal = (id,updates) => setGoals(prev=>prev.map(g=>{
+    if(g.id!==id)return g;
+    const u={...g,...updates,updatedAt:new Date().toISOString()};
+    return {...u,status:effectiveStatus(u)};
+  }));
+  const removeGoal = (id) => setGoals(prev=>prev.filter(g=>g.id!==id));
+
+  const createCategory = (data) => { const c={id:generateId(),...data}; setCategories(p=>[...p,c]); return c; };
+  const editCategory = (id,u) => setCategories(p=>p.map(c=>c.id===id?{...c,...u}:c));
+  const removeCategory = (id) => setCategories(p=>p.filter(c=>c.id!==id));
+
+  const createJournal = (data) => { const e={id:generateId(),...data,createdAt:new Date().toISOString()}; setJournal(p=>[...p,e]); return e; };
+  const editJournal = (id,u) => setJournal(p=>p.map(e=>e.id===id?{...e,...u}:e));
+  const removeJournal = (id) => setJournal(p=>p.filter(e=>e.id!==id));
+
+  return <AppCtx.Provider value={{goals,categories,journal,settings,page,navigate,selectedGoal,selGoalId,
+    createGoal,editGoal,removeGoal,createCategory,editCategory,removeCategory,
+    createJournal,editJournal,removeJournal,setSettings}}>
+    {children}
+  </AppCtx.Provider>;
+};
+
+// ─── UI Primitives ────────────────────────────────────────────────────────────
+const Card = ({children,style,className='',...p}) => (
+  <div className={className} style={{background:C.card,borderRadius:16,border:'1px solid rgba(255,255,255,0.06)',padding:16,...style}} {...p}>{children}</div>
+);
+const Card2 = ({children,style,...p}) => (
+  <div style={{background:C.card2,borderRadius:12,border:'1px solid rgba(255,255,255,0.05)',padding:'10px 12px',...style}} {...p}>{children}</div>
+);
+
+const ProgressBar = ({value,color,height=6,showLabel=false}) => {
+  const pct = clamp(value,0,100);
+  const col = color||progressColor(pct);
+  return <div>
+    {showLabel&&<div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+      <span style={{color:C.muted,fontSize:11}}>Progresso</span>
+      <span style={{color:col,fontSize:11,fontFamily:'JetBrains Mono'}}>{pct}%</span>
+    </div>}
+    <div style={{background:C.card2,borderRadius:99,height,overflow:'hidden'}}>
+      <div style={{width:`${pct}%`,height:'100%',background:col,borderRadius:99,transition:'width 0.6s ease-out'}}/>
+    </div>
+  </div>;
+};
+
+const Badge = ({label,color}) => (
+  <span style={{background:`${color}20`,color,fontSize:11,padding:'2px 8px',borderRadius:99,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>{label}</span>
+);
+
+const Btn = ({children,onClick,variant='primary',style={},disabled}) => {
+  const styles = {
+    primary:{background:C.blue,color:'#0F172A',fontWeight:700},
+    secondary:{background:C.card2,color:C.text,fontWeight:500},
+    ghost:{background:'transparent',color:C.muted},
+    danger:{background:`${C.red}20`,color:C.red,fontWeight:600},
+  };
+  return <button onClick={onClick} disabled={disabled} style={{
+    ...styles[variant],borderRadius:12,padding:'9px 16px',border:'none',cursor:disabled?'not-allowed':'pointer',
+    fontSize:14,transition:'opacity 0.15s,transform 0.1s',opacity:disabled?0.5:1,...style
+  }} onMouseEnter={e=>!disabled&&(e.target.style.opacity=0.85)}
+     onMouseLeave={e=>!disabled&&(e.target.style.opacity=1)}
+     onMouseDown={e=>!disabled&&(e.target.style.transform='scale(0.97)')}
+     onMouseUp={e=>!disabled&&(e.target.style.transform='scale(1)')}>{children}</button>;
+};
+
+const Input = ({label,type='text',value,onChange,placeholder,rows,options}) => (
+  <div style={{marginBottom:12}}>
+    {label&&<label style={{display:'block',fontSize:12,color:C.muted,marginBottom:6,fontWeight:500}}>{label}</label>}
+    {type==='textarea'
+      ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows||3}
+          style={{width:'100%',background:C.card2,border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'10px 14px',
+            color:C.text,fontSize:14,resize:'none',outline:'none',fontFamily:'DM Sans',lineHeight:1.5}}/>
+      : type==='select'
+      ? <select value={value} onChange={e=>onChange(e.target.value)}
+          style={{width:'100%',background:C.card2,border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'10px 14px',color:C.text,fontSize:14,outline:'none'}}>
+          {options?.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      : type==='range'
+      ? <input type="range" min={0} max={100} value={value} onChange={e=>onChange(+e.target.value)}
+          style={{width:'100%',accentColor:C.blue}}/>
+      : <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+          style={{width:'100%',background:C.card2,border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'10px 14px',
+            color:C.text,fontSize:14,outline:'none',fontFamily:'DM Sans'}}/>
+    }
+  </div>
+);
+
+const Modal = ({open,onClose,title,children}) => {
+  if(!open) return null;
+  return <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{
+    position:'fixed',inset:0,background:'rgba(0,0,0,0.65)',backdropFilter:'blur(8px)',zIndex:100,
+    display:'flex',alignItems:'flex-end',justifyContent:'center',padding:16}}>
+    <div className="animate-slide" style={{background:C.card,borderRadius:20,border:'1px solid rgba(255,255,255,0.08)',
+      width:'100%',maxWidth:520,maxHeight:'92vh',overflowY:'auto',padding:24}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <h2 style={{fontSize:18,fontWeight:700}}>{title}</h2>
+        <button onClick={onClose} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:20,lineHeight:1}}>×</button>
+      </div>
+      {children}
+    </div>
+  </div>;
+};
+
+const ConfirmDialog = ({open,title,msg,onOk,onCancel}) => {
+  if(!open) return null;
+  return <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+    <div className="animate-slide" style={{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:360,border:'1px solid rgba(255,255,255,0.08)'}}>
+      <h3 style={{marginBottom:8,fontSize:16,fontWeight:700}}>{title}</h3>
+      <p style={{color:C.muted,fontSize:14,marginBottom:20,lineHeight:1.5}}>{msg}</p>
+      <div style={{display:'flex',gap:10}}>
+        <Btn variant="secondary" onClick={onCancel} style={{flex:1}}>Cancelar</Btn>
+        <Btn variant="danger" onClick={onOk} style={{flex:1}}>Confirmar</Btn>
+      </div>
+    </div>
+  </div>;
+};
+
+// ─── Goal Card ────────────────────────────────────────────────────────────────
+const GoalCard = ({goal}) => {
+  const {categories,navigate} = useApp();
+  const cat = categories.find(c=>c.id===goal.categoryId);
+  const pct = calcProgress(goal);
+  const days = daysRemaining(goal);
+  const sm = statusMeta[goal.status]||statusMeta.active;
+  const prioColor = {low:C.muted,medium:C.yellow,high:C.red}[goal.priority];
+  return (
+    <Card onClick={()=>navigate('goal-detail',goal.id)} style={{cursor:'pointer',marginBottom:8,transition:'border-color 0.15s'}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.12)'}
+      onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.06)'}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
+          {cat&&<div style={{width:34,height:34,borderRadius:10,background:`${cat.color}20`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{cat.icon}</div>}
+          <div style={{minWidth:0}}>
+            <p style={{fontWeight:600,fontSize:14,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{goal.title}</p>
+            {cat&&<p style={{color:C.muted,fontSize:11,marginTop:1}}>{cat.name}</p>}
+          </div>
+        </div>
+        <Badge label={sm.label} color={sm.color}/>
+      </div>
+      <ProgressBar value={pct} showLabel height={5}/>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:10,fontSize:11,color:C.muted}}>
+        <span style={{color:prioColor}}>● {goal.priority==='low'?'Baixa':goal.priority==='medium'?'Média':'Alta'} prioridade</span>
+        {days!==null&&<span style={{color:days<7&&goal.status==='active'?C.yellow:C.muted}}>
+          {days<0?`${Math.abs(days)}d atrasado`:days===0?'Hoje!': `${days}d restantes`}
+        </span>}
+      </div>
+    </Card>
+  );
+};
+
+// ─── Goal Form ────────────────────────────────────────────────────────────────
+const GoalForm = ({open,onClose,goalToEdit}) => {
+  const {categories,createGoal,editGoal} = useApp();
+  const def = {title:'',description:'',categoryId:'',startDate:fmt(new Date()),endDate:'',
+    progressType:'manual',currentValue:0,targetValue:100,priority:'medium',status:'active'};
+  const [form,setForm] = useState(def);
+  useEffect(()=>{if(open) setForm(goalToEdit?{...def,...goalToEdit}:def);},[open]);
+  const set = (k,v)=>setForm(f=>({...f,[k]:v}));
+  const submit = (e)=>{
+    e.preventDefault();
+    if(!form.title.trim())return;
+    goalToEdit?editGoal(goalToEdit.id,form):createGoal(form);
+    onClose();
+  };
+  const catOpts = [{value:'',label:'Sem categoria'},...categories.map(c=>({value:c.id,label:`${c.icon} ${c.name}`}))];
+  return <Modal open={open} onClose={onClose} title={goalToEdit?'Editar objetivo':'Novo objetivo'}>
+    <form onSubmit={submit}>
+      <Input label="Título *" value={form.title} onChange={v=>set('title',v)} placeholder="Ex: Correr 5km"/>
+      <Input label="Descrição" type="textarea" value={form.description} onChange={v=>set('description',v)} placeholder="Descreva..."/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:0}}>
+        <Input label="Categoria" type="select" value={form.categoryId} onChange={v=>set('categoryId',v)} options={catOpts}/>
+        <Input label="Prioridade" type="select" value={form.priority} onChange={v=>set('priority',v)}
+          options={[{value:'low',label:'Baixa'},{value:'medium',label:'Média'},{value:'high',label:'Alta'}]}/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <Input label="Data inicial" type="date" value={form.startDate} onChange={v=>set('startDate',v)}/>
+        <Input label="Data final" type="date" value={form.endDate} onChange={v=>set('endDate',v)}/>
+      </div>
+      <Input label="Tipo de progresso" type="select" value={form.progressType} onChange={v=>set('progressType',v)}
+        options={[{value:'manual',label:'Manual (%)'},{value:'numeric',label:'Numérico'},{value:'tasks',label:'Tarefas'},{value:'time',label:'Tempo'}]}/>
+      {form.progressType==='numeric'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <Input label="Valor atual" type="number" value={form.currentValue} onChange={v=>set('currentValue',+v)}/>
+        <Input label="Valor final" type="number" value={form.targetValue} onChange={v=>set('targetValue',+v)}/>
+      </div>}
+      {form.progressType==='manual'&&<div style={{marginBottom:12}}>
+        <label style={{fontSize:12,color:C.muted,display:'block',marginBottom:6}}>Progresso: {form.currentValue}%</label>
+        <Input type="range" value={form.currentValue} onChange={v=>set('currentValue',v)}/>
+      </div>}
+      <Input label="Status" type="select" value={form.status} onChange={v=>set('status',v)}
+        options={[{value:'active',label:'Ativo'},{value:'paused',label:'Pausado'},{value:'completed',label:'Concluído'}]}/>
+      <div style={{display:'flex',gap:10,marginTop:8}}>
+        <Btn variant="secondary" onClick={onClose} style={{flex:1}} type="button">Cancelar</Btn>
+        <Btn style={{flex:1}} type="submit">{goalToEdit?'Salvar':'Criar'}</Btn>
+      </div>
+    </form>
+  </Modal>;
+};
+
+// ─── Journal Entry Card ───────────────────────────────────────────────────────
+const JEntryCard = ({entry,onClick,compact}) => {
+  const {categories} = useApp();
+  const mood = moodEmojis[entry.mood]||moodEmojis.neutral;
+  const cat = categories.find(c=>c.id===entry.categoryId);
+  const dateStr = new Date(entry.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
+  return <Card onClick={onClick} style={{cursor:onClick?'pointer':'default',marginBottom:8}}>
+    <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+      <span style={{fontSize:28,lineHeight:1,flexShrink:0}}>{mood.emoji}</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+          <span style={{fontSize:11,color:C.muted}}>{dateStr}</span>
+          {cat&&<span style={{fontSize:10,padding:'2px 7px',borderRadius:99,background:`${cat.color}20`,color:cat.color}}>{cat.name}</span>}
+        </div>
+        <p style={{fontSize:13,color:C.text,lineHeight:1.55,display:'-webkit-box',WebkitLineClamp:compact?2:3,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{entry.text}</p>
+      </div>
+    </div>
+  </Card>;
+};
+
+// ─── Journal Form ─────────────────────────────────────────────────────────────
+const JournalForm = ({open,onClose,entryToEdit}) => {
+  const {goals,categories,createJournal,editJournal} = useApp();
+  const def = {date:fmt(new Date()),mood:'good',text:'',categoryId:'',goalIds:[]};
+  const [form,setForm] = useState(def);
+  useEffect(()=>{if(open) setForm(entryToEdit?{...def,...entryToEdit}:def);},[open]);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const toggleGoal=(id)=>set('goalIds',form.goalIds.includes(id)?form.goalIds.filter(x=>x!==id):[...form.goalIds,id]);
+  const submit=(e)=>{
+    e.preventDefault();
+    if(!form.text.trim())return;
+    entryToEdit?editJournal(entryToEdit.id,form):createJournal(form);
+    onClose();
+  };
+  const catOpts=[{value:'',label:'Sem categoria'},...categories.map(c=>({value:c.id,label:`${c.icon} ${c.name}`}))];
+  const activeGoals=goals.filter(g=>g.status==='active'||g.status==='paused');
+  return <Modal open={open} onClose={onClose} title={entryToEdit?'Editar entrada':'Nova entrada no diário'}>
+    <form onSubmit={submit}>
+      <Input label="Data" type="date" value={form.date} onChange={v=>set('date',v)}/>
+      <div style={{marginBottom:12}}>
+        <label style={{fontSize:12,color:C.muted,display:'block',marginBottom:8}}>Como você está?</label>
+        <div style={{display:'flex',gap:6}}>
+          {Object.entries(moodEmojis).map(([k,{emoji,label}])=>(
+            <button key={k} type="button" onClick={()=>set('mood',k)} style={{
+              flex:1,padding:'8px 4px',borderRadius:10,border:`1px solid ${form.mood===k?C.blue:'rgba(255,255,255,0.1)'}`,
+              background:form.mood===k?`${C.blue}15`:'transparent',cursor:'pointer',fontSize:20,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+              {emoji}
+              <span style={{fontSize:9,color:C.muted}}>{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <Input label="O que aconteceu hoje?" type="textarea" value={form.text} onChange={v=>set('text',v)} placeholder="Escreva seus pensamentos..." rows={4}/>
+      <Input label="Categoria" type="select" value={form.categoryId} onChange={v=>set('categoryId',v)} options={catOpts}/>
+      {activeGoals.length>0&&<div style={{marginBottom:12}}>
+        <label style={{fontSize:12,color:C.muted,display:'block',marginBottom:6}}>Objetivos relacionados</label>
+        <div style={{maxHeight:120,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+          {activeGoals.map(g=>(
+            <label key={g.id} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 10px',borderRadius:10,background:C.card2,cursor:'pointer'}}>
+              <input type="checkbox" checked={form.goalIds.includes(g.id)} onChange={()=>toggleGoal(g.id)} style={{accentColor:C.blue}}/>
+              <span style={{fontSize:13}}>{g.title}</span>
+            </label>
+          ))}
+        </div>
+      </div>}
+      <div style={{display:'flex',gap:10,marginTop:8}}>
+        <Btn variant="secondary" onClick={onClose} style={{flex:1}} type="button">Cancelar</Btn>
+        <Btn style={{flex:1}} type="submit">{entryToEdit?'Salvar':'Registrar'}</Btn>
+      </div>
+    </form>
+  </Modal>;
+};
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+const DashboardPage = () => {
+  const {goals,settings,navigate} = useApp();
+  const [showForm,setShowForm] = useState(false);
+  const active=goals.filter(g=>g.status==='active');
+  const completed=goals.filter(g=>g.status==='completed');
+  const overdue=goals.filter(g=>g.status==='overdue');
+  const upcoming=active.filter(g=>{const d=daysRemaining(g);return d!==null&&d<=7;});
+  const avgPct=active.length?Math.round(active.reduce((s,g)=>s+calcProgress(g),0)/active.length):0;
+  const recent=[...goals].sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt)).slice(0,4);
+  const h=new Date().getHours();
+  const greet=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
+  const StatCard=({emoji,label,val,color})=>(
+    <Card2 style={{flex:1}}>
+      <div style={{fontSize:22,marginBottom:4}}>{emoji}</div>
+      <div style={{fontSize:26,fontWeight:800,color,fontFamily:'Sora'}}>{val}</div>
+      <div style={{fontSize:11,color:C.muted}}>{label}</div>
+    </Card2>
+  );
+  return <div className="page animate-fade">
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:24}}>
+      <div>
+        <p style={{color:C.muted,fontSize:13}}>{greet},</p>
+        <h1 style={{fontSize:26,fontWeight:800}}>{settings.name||'Usuário'} 👋</h1>
+      </div>
+      <Btn onClick={()=>setShowForm(true)}>+ Novo</Btn>
+    </div>
+
+    {/* Progress circle */}
+    <Card style={{display:'flex',alignItems:'center',gap:20,marginBottom:16}}>
+      <div style={{position:'relative',width:90,height:90,flexShrink:0}}>
+        <svg width="90" height="90" viewBox="0 0 90 90">
+          <circle cx="45" cy="45" r="36" fill="none" stroke={C.card2} strokeWidth="8"/>
+          <circle cx="45" cy="45" r="36" fill="none" stroke={C.blue} strokeWidth="8"
+            strokeDasharray={`${2*Math.PI*36*avgPct/100} ${2*Math.PI*36*(1-avgPct/100)}`}
+            strokeLinecap="round" strokeDashoffset={2*Math.PI*36*0.25} style={{transition:'stroke-dasharray 0.6s ease'}}/>
+        </svg>
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Sora',fontWeight:800,fontSize:18,color:C.blue}}>{avgPct}%</div>
+      </div>
+      <div>
+        <p style={{color:C.muted,fontSize:12,marginBottom:4}}>Progresso médio geral</p>
+        <p style={{fontSize:14,color:C.text}}><span style={{fontWeight:700,color:C.blue}}>{active.length}</span> objetivos ativos</p>
+        <p style={{fontSize:13,color:C.muted,marginTop:2}}>{completed.length} concluídos · {overdue.length} atrasados</p>
+      </div>
+    </Card>
+
+    {/* Stats */}
+    <div style={{display:'flex',gap:8,marginBottom:16}}>
+      <StatCard emoji="🎯" label="Ativos" val={active.length} color={C.blue}/>
+      <StatCard emoji="✅" label="Concluídos" val={completed.length} color={C.green}/>
+      <StatCard emoji="⚠️" label="Atrasados" val={overdue.length} color={C.red}/>
+    </div>
+
+    {/* Upcoming */}
+    {upcoming.length>0&&<div style={{marginBottom:16}}>
+      <p style={{fontWeight:700,fontSize:15,marginBottom:10}}>⚠️ Prazos próximos</p>
+      {upcoming.map(g=>{
+        const dr=daysRemaining(g);
+        return <Card2 key={g.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <p style={{fontSize:13,fontWeight:500}}>{g.title}</p>
+          <span style={{fontSize:11,color:C.yellow,fontWeight:600}}>{dr}d</span>
+        </Card2>;
+      })}
+    </div>}
+
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+      <p style={{fontWeight:700,fontSize:15}}>Objetivos recentes</p>
+      <button onClick={()=>navigate('goals')} style={{background:'none',border:'none',color:C.blue,fontSize:12,cursor:'pointer',fontFamily:'DM Sans'}}>Ver todos</button>
+    </div>
+    {recent.map(g=><GoalCard key={g.id} goal={g}/>)}
+    <GoalForm open={showForm} onClose={()=>setShowForm(false)}/>
+  </div>;
+};
+
+// ─── Goals Page ───────────────────────────────────────────────────────────────
+const GoalsPage = () => {
+  const {goals} = useApp();
+  const [showForm,setShowForm] = useState(false);
+  const [filter,setFilter] = useState('all');
+  const [search,setSearch] = useState('');
+  const tabs=['all','active','completed','paused','overdue'];
+  const tabLabels={all:'Todos',active:'Ativos',completed:'Concluídos',paused:'Pausados',overdue:'Atrasados'};
+  const filtered = goals.filter(g=>(filter==='all'||g.status===filter)&&(!search||g.title.toLowerCase().includes(search.toLowerCase())));
+  return <div className="page animate-fade">
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:24,fontWeight:800}}>Objetivos</h1><p style={{color:C.muted,fontSize:12}}>{goals.length} no total</p></div>
+      <Btn onClick={()=>setShowForm(true)}>+ Novo</Btn>
+    </div>
+    <div style={{position:'relative',marginBottom:12}}>
+      <span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.muted,fontSize:14}}>🔍</span>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar objetivos..."
+        style={{width:'100%',background:C.card2,border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'9px 14px 9px 36px',
+          color:C.text,fontSize:13,outline:'none',fontFamily:'DM Sans'}}/>
+    </div>
+    <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:4,marginBottom:16}}>
+      {tabs.map(t=><button key={t} onClick={()=>setFilter(t)} style={{
+        flexShrink:0,padding:'5px 12px',borderRadius:99,fontSize:11,fontWeight:600,border:'none',cursor:'pointer',
+        background:filter===t?C.blue:C.card2, color:filter===t?'#0F172A':C.muted}}>{tabLabels[t]}</button>)}
+    </div>
+    {filtered.length===0
+      ? <div style={{textAlign:'center',padding:'40px 0',color:C.muted}}>
+          <div style={{fontSize:36,marginBottom:10}}>🎯</div>
+          <p style={{fontWeight:600}}>Nenhum objetivo encontrado</p>
+        </div>
+      : filtered.map(g=><GoalCard key={g.id} goal={g}/>)
+    }
+    <GoalForm open={showForm} onClose={()=>setShowForm(false)}/>
+  </div>;
+};
+
+// ─── Goal Detail ──────────────────────────────────────────────────────────────
+const GoalDetailPage = () => {
+  const {selectedGoal:goal,categories,journal,navigate,editGoal,removeGoal} = useApp();
+  const [showEdit,setShowEdit]=useState(false);
+  const [delConf,setDelConf]=useState(false);
+  const [newTask,setNewTask]=useState('');
+  const [showTaskIn,setShowTaskIn]=useState(false);
+  const [progVal,setProgVal]=useState(null);
+  if(!goal){navigate('goals');return null;}
+  const cat=categories.find(c=>c.id===goal.categoryId);
+  const pct=calcProgress(goal);
+  const days=daysRemaining(goal);
+  const sm=statusMeta[goal.status]||statusMeta.active;
+  const relJ=journal.filter(e=>e.goalIds?.includes(goal.id)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const handleDel=()=>{removeGoal(goal.id);navigate('goals');};
+  const toggleTask=(id)=>editGoal(goal.id,{tasks:goal.tasks.map(t=>t.id===id?{...t,done:!t.done}:t)});
+  const addTask=()=>{
+    if(!newTask.trim())return;
+    editGoal(goal.id,{tasks:[...(goal.tasks||[]),{id:generateId(),text:newTask.trim(),done:false}]});
+    setNewTask('');setShowTaskIn(false);
+  };
+  const updateProg=()=>{
+    if(progVal===null)return;
+    editGoal(goal.id,{currentValue:progVal});setProgVal(null);
+  };
+  const col=progressColor(pct);
+  return <div className="page animate-fade">
+    <button onClick={()=>navigate('goals')} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:13,marginBottom:16,display:'flex',alignItems:'center',gap:6,fontFamily:'DM Sans'}}>← Objetivos</button>
+    <Card style={{marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,flex:1,minWidth:0}}>
+          {cat&&<div style={{width:42,height:42,borderRadius:12,background:`${cat.color}20`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{cat.icon}</div>}
+          <div style={{minWidth:0}}>
+            <h1 style={{fontSize:19,fontWeight:800,lineHeight:1.2}}>{goal.title}</h1>
+            {cat&&<p style={{color:C.muted,fontSize:12,marginTop:2}}>{cat.name}</p>}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:4,flexShrink:0}}>
+          <button onClick={()=>setShowEdit(true)} style={{background:C.card2,border:'none',color:C.muted,padding:'6px 10px',borderRadius:10,cursor:'pointer',fontSize:13}}>✏️</button>
+          <button onClick={()=>setDelConf(true)} style={{background:`${C.red}10`,border:'none',color:C.red,padding:'6px 10px',borderRadius:10,cursor:'pointer',fontSize:13}}>🗑</button>
+        </div>
+      </div>
+      {goal.description&&<p style={{color:C.muted,fontSize:13,marginBottom:12,lineHeight:1.5}}>{goal.description}</p>}
+      <ProgressBar value={pct} showLabel height={10}/>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:12}}>
+        <Card2><Badge label={sm.label} color={sm.color}/></Card2>
+        <Card2 style={{color:C.muted,fontSize:12,display:'flex',alignItems:'center',gap:6}}>
+          📊 {goal.progressType==='numeric'?`${goal.currentValue}/${goal.targetValue}`:
+          goal.progressType==='tasks'?`${goal.tasks?.filter(t=>t.done).length}/${goal.tasks?.length} tasks`:
+          goal.progressType==='manual'?`${pct}% manual`:'Por tempo'}
+        </Card2>
+        {days!==null&&<Card2 style={{color:days<7?C.yellow:C.muted,fontSize:12,display:'flex',alignItems:'center',gap:6}}>
+          🕐 {days<0?`${Math.abs(days)}d atrasado`:days===0?'Vence hoje!': `${days}d restantes`}
+        </Card2>}
+      </div>
+    </Card>
+
+    {(goal.progressType==='manual'||goal.progressType==='numeric')&&<Card style={{marginBottom:12}}>
+      <p style={{fontWeight:700,fontSize:14,marginBottom:12}}>Atualizar progresso</p>
+      {goal.progressType==='manual'
+        ? <div>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:6,fontSize:12,color:C.muted}}>
+              <span>Progresso</span><span style={{color:col}}>{progVal??pct}%</span>
+            </div>
+            <input type="range" min={0} max={100} value={progVal??goal.currentValue} onChange={e=>setProgVal(+e.target.value)}
+              style={{width:'100%',accentColor:C.blue,marginBottom:10}}/>
+            <Btn onClick={updateProg} disabled={progVal===null} style={{width:'100%',fontSize:13}}>Salvar progresso</Btn>
+          </div>
+        : <div style={{display:'flex',gap:8}}>
+            <input type="number" value={progVal??goal.currentValue} onChange={e=>setProgVal(+e.target.value)} placeholder="Valor atual"
+              style={{flex:1,background:C.card2,border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'9px 14px',color:C.text,fontSize:14,outline:'none'}}/>
+            <Btn onClick={updateProg}>Salvar</Btn>
+          </div>
+      }
+    </Card>}
+
+    {(goal.progressType==='tasks'||(goal.tasks&&goal.tasks.length>0))&&<Card style={{marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <p style={{fontWeight:700,fontSize:14}}>Tarefas</p>
+        <button onClick={()=>setShowTaskIn(t=>!t)} style={{background:C.card2,border:'none',color:C.blue,padding:'4px 12px',borderRadius:99,cursor:'pointer',fontSize:13}}>
+          {showTaskIn?'−':'+'}
+        </button>
+      </div>
+      {showTaskIn&&<div style={{display:'flex',gap:8,marginBottom:10}}>
+        <input value={newTask} onChange={e=>setNewTask(e.target.value)} placeholder="Nova tarefa..."
+          onKeyDown={e=>e.key==='Enter'&&addTask()}
+          style={{flex:1,background:C.card2,border:'1px solid rgba(255,255,255,0.1)',borderRadius:10,padding:'8px 12px',color:C.text,fontSize:13,outline:'none'}}
+          autoFocus/>
+        <Btn onClick={addTask} style={{padding:'8px 14px',fontSize:13}}>Add</Btn>
+      </div>}
+      {(goal.tasks||[]).map(task=>(
+        <div key={task.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,0.04)'}}>
+          <button onClick={()=>toggleTask(task.id)} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,lineHeight:1}}>
+            {task.done?'✅':'⭕'}
+          </button>
+          <span style={{flex:1,fontSize:13,textDecoration:task.done?'line-through':'none',color:task.done?C.muted:C.text}}>{task.text}</span>
+          <button onClick={()=>editGoal(goal.id,{tasks:goal.tasks.filter(t=>t.id!==task.id)})}
+            style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:14,opacity:0.6}}>✕</button>
+        </div>
+      ))}
+      {(!goal.tasks||goal.tasks.length===0)&&<p style={{fontSize:12,color:C.muted,textAlign:'center',padding:'8px 0'}}>Nenhuma tarefa.</p>}
+    </Card>}
+
+    {relJ.length>0&&<div>
+      <p style={{fontWeight:700,fontSize:15,marginBottom:10}}>📓 Registros do diário</p>
+      {relJ.map(e=><JEntryCard key={e.id} entry={e} compact/>)}
+    </div>}
+
+    <GoalForm open={showEdit} onClose={()=>setShowEdit(false)} goalToEdit={goal}/>
+    <ConfirmDialog open={delConf} title="Excluir objetivo" msg={`Excluir "${goal.title}"?`} onOk={handleDel} onCancel={()=>setDelConf(false)}/>
+  </div>;
+};
+
+// ─── Journal Page ─────────────────────────────────────────────────────────────
+const JournalPage = () => {
+  const {journal,removeJournal} = useApp();
+  const [showForm,setShowForm]=useState(false);
+  const [editEntry,setEditEntry]=useState(null);
+  const [delId,setDelId]=useState(null);
+  const sorted=[...journal].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const moodCount=journal.reduce((acc,e)=>{acc[e.mood]=(acc[e.mood]||0)+1;return acc;},{});
+  return <div className="page animate-fade">
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:24,fontWeight:800}}>Diário</h1><p style={{color:C.muted,fontSize:12}}>{journal.length} entradas</p></div>
+      <Btn onClick={()=>{setEditEntry(null);setShowForm(true);}}>✍️ Escrever</Btn>
+    </div>
+    {journal.length>0&&<Card style={{marginBottom:16,display:'flex',justifyContent:'space-around'}}>
+      {Object.entries(moodEmojis).map(([k,{emoji}])=>moodCount[k]?(
+        <div key={k} style={{textAlign:'center'}}>
+          <div style={{fontSize:24}}>{emoji}</div>
+          <div style={{fontSize:11,color:C.muted,fontFamily:'JetBrains Mono'}}>{moodCount[k]}</div>
+        </div>
+      ):null)}
+    </Card>}
+    {sorted.length===0
+      ? <div style={{textAlign:'center',padding:'40px 0',color:C.muted}}>
+          <div style={{fontSize:40,marginBottom:10}}>📔</div>
+          <p style={{fontWeight:600}}>Nenhuma entrada ainda</p>
+          <p style={{fontSize:13,marginTop:4}}>Comece a registrar!</p>
+          <div style={{marginTop:16}}><Btn onClick={()=>setShowForm(true)}>Escrever agora</Btn></div>
+        </div>
+      : sorted.map(e=>(
+        <div key={e.id} style={{position:'relative'}}>
+          <JEntryCard entry={e} onClick={()=>{setEditEntry(e);setShowForm(true);}}/>
+          <div style={{position:'absolute',top:12,right:12,display:'flex',gap:4}}>
+            <button onClick={ev=>{ev.stopPropagation();setDelId(e.id);}} style={{background:C.card2,border:'none',color:C.muted,padding:'3px 8px',borderRadius:8,cursor:'pointer',fontSize:12}}>🗑</button>
+          </div>
+        </div>
+      ))
+    }
+    <JournalForm open={showForm} onClose={()=>{setShowForm(false);setEditEntry(null);}} entryToEdit={editEntry}/>
+    <ConfirmDialog open={!!delId} title="Excluir entrada" msg="Excluir esta entrada do diário?" onOk={()=>{removeJournal(delId);setDelId(null);}} onCancel={()=>setDelId(null)}/>
+  </div>;
+};
+
+// ─── Calendar Page ────────────────────────────────────────────────────────────
+const CalendarPage = () => {
+  const {journal,goals,navigate}=useApp();
+  const [curMonth,setCurMonth]=useState(new Date());
+  const [selDate,setSelDate]=useState(new Date());
+  const startOfMonth=new Date(curMonth.getFullYear(),curMonth.getMonth(),1);
+  const daysInMonth=new Date(curMonth.getFullYear(),curMonth.getMonth()+1,0).getDate();
+  const startDay=startOfMonth.getDay();
+  const days=Array.from({length:daysInMonth},(_,i)=>new Date(curMonth.getFullYear(),curMonth.getMonth(),i+1));
+  const jByDate=journal.reduce((m,e)=>{(m[e.date]=m[e.date]||[]).push(e);return m;},{});
+  const fmtDate=d=>fmt(d);
+  const selStr=fmtDate(selDate);
+  const selJ=jByDate[selStr]||[];
+  const upcomingGoals=goals.filter(g=>{const dr=daysRemaining(g);return dr!==null&&dr>=0&&dr<=14&&g.status==='active';}).sort((a,b)=>daysRemaining(a)-daysRemaining(b));
+  const monthNames=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const weekDays=['D','S','T','Q','Q','S','S'];
+  const prevMonth=()=>setCurMonth(m=>new Date(m.getFullYear(),m.getMonth()-1));
+  const nextMonth=()=>setCurMonth(m=>new Date(m.getFullYear(),m.getMonth()+1));
+  const isSame=(a,b)=>a.toDateString()===b.toDateString();
+  const isToday=d=>d.toDateString()===new Date().toDateString();
+  const getDots=d=>{
+    const dots=[];
+    if(jByDate[fmtDate(d)]?.length) dots.push(C.blue);
+    if(goals.some(g=>g.endDate&&fmtDate(new Date(g.endDate+'T12:00')===fmtDate(d)))) dots.push(C.yellow);
+    return dots;
+  };
+  return <div className="page animate-fade">
+    <h1 style={{fontSize:24,fontWeight:800,marginBottom:16}}>Calendário</h1>
+    <Card style={{marginBottom:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <button onClick={prevMonth} style={{background:C.card2,border:'none',color:C.text,padding:'6px 12px',borderRadius:10,cursor:'pointer',fontSize:16}}>←</button>
+        <h2 style={{fontSize:16,fontWeight:700}}>{monthNames[curMonth.getMonth()]} {curMonth.getFullYear()}</h2>
+        <button onClick={nextMonth} style={{background:C.card2,border:'none',color:C.text,padding:'6px 12px',borderRadius:10,cursor:'pointer',fontSize:16}}>→</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',textAlign:'center',marginBottom:8}}>
+        {weekDays.map((w,i)=><div key={i} style={{fontSize:11,color:C.muted,fontWeight:600,padding:'4px 0'}}>{w}</div>)}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+        {Array.from({length:startDay}).map((_,i)=><div key={`e${i}`}/>)}
+        {days.map(day=>{
+          const sel=isSame(day,selDate);
+          const tod=isToday(day);
+          const jDots=jByDate[fmtDate(day)]?.length>0;
+          const gDot=goals.some(g=>g.endDate&&fmtDate(new Date(g.endDate.split('T')[0]+'T12:00'))===fmtDate(day));
+          return <button key={day.toISOString()} onClick={()=>setSelDate(day)} style={{
+            position:'relative',aspectRatio:'1',borderRadius:10,border:tod&&!sel?`1px solid ${C.blue}`:'1px solid transparent',
+            background:sel?C.blue:'transparent',color:sel?'#0F172A':tod?C.blue:C.text,
+            fontSize:13,fontWeight:sel||tod?700:400,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1}}>
+            {day.getDate()}
+            <div style={{display:'flex',gap:1,height:3}}>
+              {jDots&&<div style={{width:3,height:3,borderRadius:'50%',background:sel?'#0F172A':C.blue}}/>}
+              {gDot&&<div style={{width:3,height:3,borderRadius:'50%',background:sel?'#0F172A':C.yellow}}/>}
+            </div>
+          </button>;
+        })}
+      </div>
+    </Card>
+    <div style={{display:'flex',gap:12,marginBottom:16,fontSize:11,color:C.muted}}>
+      <span style={{display:'flex',alignItems:'center',gap:5}}><span style={{width:8,height:8,borderRadius:'50%',background:C.blue,display:'inline-block'}}/>Diário</span>
+      <span style={{display:'flex',alignItems:'center',gap:5}}><span style={{width:8,height:8,borderRadius:'50%',background:C.yellow,display:'inline-block'}}/>Prazo</span>
+    </div>
+    <p style={{fontWeight:700,fontSize:14,marginBottom:10}}>{selDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'long'})}</p>
+    {selJ.length===0&&<Card2 style={{textAlign:'center',color:C.muted,fontSize:13,padding:12}}>Nenhum registro para este dia</Card2>}
+    {selJ.map(e=><Card key={e.id} style={{marginBottom:8}}><div style={{display:'flex',gap:10}}><span style={{fontSize:22}}>{moodEmojis[e.mood]?.emoji}</span><p style={{fontSize:13,lineHeight:1.5,flex:1}}>{e.text.slice(0,150)}{e.text.length>150?'...':''}</p></div></Card>)}
+    {upcomingGoals.length>0&&<div style={{marginTop:16}}>
+      <p style={{fontWeight:700,fontSize:14,marginBottom:10}}>Próximos prazos (14 dias)</p>
+      {upcomingGoals.map(g=>{
+        const dr=daysRemaining(g);
+        return <button key={g.id} onClick={()=>navigate('goal-detail',g.id)} style={{
+          display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',
+          background:C.card,border:'1px solid rgba(255,255,255,0.06)',borderRadius:12,padding:'10px 14px',
+          marginBottom:6,cursor:'pointer'}}>
+          <p style={{fontSize:13,fontWeight:500,color:C.text}}>{g.title}</p>
+          <span style={{fontSize:11,color:dr<=3?C.red:dr<=7?C.yellow:C.muted,fontWeight:600,marginLeft:8}}>{dr===0?'Hoje':`${dr}d`}</span>
+        </button>;
+      })}
+    </div>}
+  </div>;
+};
+
+// ─── Categories Page ──────────────────────────────────────────────────────────
+const CategoriesPage = () => {
+  const {categories,goals,createCategory,editCategory,removeCategory}=useApp();
+  const [showForm,setShowForm]=useState(false);
+  const [editCat,setEditCat]=useState(null);
+  const [delId,setDelId]=useState(null);
+  const [form,setForm]=useState({name:'',color:C.blue,icon:'⭐'});
+  const ICONS=['❤️','💼','💰','📚','⭐','👥','⚡','🌍','🎵','📷','💻','🏋️','☕','🏠','✈️','🎮','🌿','🏆'];
+  const COLORS=[C.green,C.blue,C.yellow,C.purple,C.red,C.orange,C.pink,'#14B8A6','#64748B'];
+  const open=(cat)=>{setEditCat(cat||null);setForm(cat?{name:cat.name,color:cat.color,icon:cat.icon}:{name:'',color:C.blue,icon:'⭐'});setShowForm(true);};
+  const submit=(e)=>{
+    e.preventDefault();
+    if(!form.name.trim())return;
+    editCat?editCategory(editCat.id,form):createCategory(form);
+    setShowForm(false);
+  };
+  const stats=(id)=>{const cg=goals.filter(g=>g.categoryId===id);return{total:cg.length,avg:cg.length?Math.round(cg.reduce((s,g)=>s+calcProgress(g),0)/cg.length):0};};
+  return <div className="page animate-fade">
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:24,fontWeight:800}}>Categorias</h1><p style={{color:C.muted,fontSize:12}}>{categories.length} categorias</p></div>
+      <Btn onClick={()=>open(null)}>+ Nova</Btn>
+    </div>
+    {categories.map(cat=>{
+      const s=stats(cat.id);
+      return <Card key={cat.id} style={{marginBottom:10}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:s.total>0?12:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{width:42,height:42,borderRadius:12,background:`${cat.color}20`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>{cat.icon}</div>
+            <div><p style={{fontWeight:600,fontSize:15}}>{cat.name}</p><p style={{color:C.muted,fontSize:11,marginTop:1}}>{s.total} objetivos</p></div>
+          </div>
+          <div style={{display:'flex',gap:4}}>
+            <button onClick={()=>open(cat)} style={{background:C.card2,border:'none',color:C.muted,padding:'6px 10px',borderRadius:10,cursor:'pointer',fontSize:13}}>✏️</button>
+            <button onClick={()=>setDelId(cat.id)} style={{background:`${C.red}10`,border:'none',color:C.red,padding:'6px 10px',borderRadius:10,cursor:'pointer',fontSize:13}}>🗑</button>
+          </div>
+        </div>
+        {s.total>0&&<ProgressBar value={s.avg} color={cat.color} showLabel height={5}/>}
+      </Card>;
+    })}
+    <Modal open={showForm} onClose={()=>setShowForm(false)} title={editCat?'Editar categoria':'Nova categoria'}>
+      <form onSubmit={submit}>
+        <Input label="Nome" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Saúde"/>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,color:C.muted,display:'block',marginBottom:8}}>Cor</label>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {COLORS.map(c=><button key={c} type="button" onClick={()=>setForm(f=>({...f,color:c}))}
+              style={{width:28,height:28,borderRadius:8,background:c,border:form.color===c?'2px solid white':'2px solid transparent',cursor:'pointer'}}/>)}
+          </div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:12,color:C.muted,display:'block',marginBottom:8}}>Ícone</label>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {ICONS.map(ic=><button key={ic} type="button" onClick={()=>setForm(f=>({...f,icon:ic}))}
+              style={{width:36,height:36,borderRadius:10,background:form.icon===ic?`${form.color}20`:'transparent',
+                border:`1px solid ${form.icon===ic?form.color:'rgba(255,255,255,0.1)'}`,cursor:'pointer',fontSize:17}}>{ic}</button>)}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <Btn variant="secondary" onClick={()=>setShowForm(false)} style={{flex:1}} type="button">Cancelar</Btn>
+          <Btn style={{flex:1}} type="submit">{editCat?'Salvar':'Criar'}</Btn>
+        </div>
+      </form>
+    </Modal>
+    <ConfirmDialog open={!!delId} title="Excluir categoria" msg="Os objetivos não serão removidos, apenas ficarão sem categoria." onOk={()=>{removeCategory(delId);setDelId(null);}} onCancel={()=>setDelId(null)}/>
+  </div>;
+};
+
+// ─── Settings Page ────────────────────────────────────────────────────────────
+const SettingsPage = () => {
+  const {settings,setSettings,goals,journal,categories}=useApp();
+  const [name,setName]=useState(settings.name||'');
+  const [saved,setSaved]=useState(false);
+  const save=()=>{setSettings({...settings,name});setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  return <div className="page animate-fade">
+    <h1 style={{fontSize:24,fontWeight:800,marginBottom:20}}>Configurações</h1>
+    <Card style={{marginBottom:12}}>
+      <p style={{fontWeight:700,fontSize:14,marginBottom:12}}>👤 Perfil</p>
+      <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+        <div style={{flex:1}}>
+          <Input label="Seu nome" value={name} onChange={setName} placeholder="Como quer ser chamado?"/>
+        </div>
+        <Btn onClick={save} style={{marginBottom:12}}>Salvar</Btn>
+      </div>
+      {saved&&<p style={{color:C.green,fontSize:12}}>✓ Nome salvo!</p>}
+    </Card>
+    <Card style={{marginBottom:12}}>
+      <p style={{fontWeight:700,fontSize:14,marginBottom:12}}>📊 Estatísticas</p>
+      {[['🎯 Objetivos',goals.length],['✅ Concluídos',goals.filter(g=>g.status==='completed').length],
+        ['📓 Entradas',journal.length],['🏷️ Categorias',categories.length]].map(([l,v])=>(
+        <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid rgba(255,255,255,0.04)',fontSize:13}}>
+          <span style={{color:C.muted}}>{l}</span>
+          <span style={{fontWeight:700,fontFamily:'JetBrains Mono',color:C.blue}}>{v}</span>
+        </div>
+      ))}
+    </Card>
+    <Card style={{marginBottom:12,border:`1px solid ${C.blue}30`}}>
+      <p style={{color:C.blue,fontWeight:700,fontSize:13,marginBottom:8}}>📱 Instalar como app</p>
+      <p style={{color:C.muted,fontSize:12,lineHeight:1.6}}>Use "Adicionar à tela inicial" no Chrome ou Safari para instalar o GoalPath como um app nativo no seu dispositivo.</p>
+    </Card>
+    <Card style={{border:`1px solid ${C.red}25`}}>
+      <p style={{fontWeight:700,fontSize:13,color:C.red,marginBottom:4}}>GoalPath v1.0</p>
+      <p style={{color:C.muted,fontSize:12}}>PWA · LocalStorage · React + Vite</p>
+    </Card>
+  </div>;
+};
+
+// ─── Bottom Nav ───────────────────────────────────────────────────────────────
+const BottomNav = () => {
+  const {page,navigate}=useApp();
+  const items=[
+    {id:'dashboard',icon:'🏠',label:'Início'},
+    {id:'goals',icon:'🎯',label:'Objetivos'},
+    {id:'journal',icon:'📓',label:'Diário'},
+    {id:'calendar',icon:'📅',label:'Calendário'},
+    {id:'categories',icon:'🏷️',label:'Categ.'},
+  ];
+  const active=(id)=>page===id||(page==='goal-detail'&&id==='goals');
+  return <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'rgba(15,23,42,0.95)',backdropFilter:'blur(16px)',
+    borderTop:'1px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'space-around',padding:'6px 4px 10px',zIndex:50}}>
+    {items.map(({id,icon,label})=>(
+      <button key={id} onClick={()=>navigate(id)} style={{
+        display:'flex',flexDirection:'column',alignItems:'center',gap:2,padding:'6px 12px',borderRadius:12,border:'none',
+        background:active(id)?`${C.blue}15`:'transparent',color:active(id)?C.blue:C.muted,cursor:'pointer',fontFamily:'DM Sans',
+        transition:'all 0.15s'}}>
+        <span style={{fontSize:20}}>{icon}</span>
+        <span style={{fontSize:9,fontWeight:600}}>{label}</span>
+      </button>
+    ))}
+  </nav>;
+};
+
+const SideNav = () => {
+  const {page,navigate}=useApp();
+  const items=[
+    {id:'dashboard',icon:'🏠',label:'Início'},
+    {id:'goals',icon:'🎯',label:'Objetivos'},
+    {id:'journal',icon:'📓',label:'Diário'},
+    {id:'calendar',icon:'📅',label:'Calendário'},
+    {id:'categories',icon:'🏷️',label:'Categorias'},
+    {id:'settings',icon:'⚙️',label:'Configurações'},
+  ];
+  const active=(id)=>page===id||(page==='goal-detail'&&id==='goals');
+  return <aside style={{width:220,borderRight:'1px solid rgba(255,255,255,0.06)',padding:'24px 12px',display:'flex',flexDirection:'column',flexShrink:0}}>
+    <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 8px',marginBottom:28}}>
+      <div style={{width:32,height:32,borderRadius:10,background:'linear-gradient(135deg,#38BDF8,#8B5CF6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>📈</div>
+      <span style={{fontFamily:'Sora',fontWeight:800,fontSize:17,letterSpacing:-0.5}}>GoalPath</span>
+    </div>
+    {items.map(({id,icon,label})=>(
+      <button key={id} onClick={()=>navigate(id)} style={{
+        display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:12,border:'none',width:'100%',
+        background:active(id)?`${C.blue}15`:'transparent',color:active(id)?C.blue:C.muted,
+        cursor:'pointer',fontSize:13,fontWeight:500,fontFamily:'DM Sans',marginBottom:2,textAlign:'left',transition:'all 0.15s'}}>
+        <span style={{fontSize:16}}>{icon}</span>{label}
+      </button>
+    ))}
+  </aside>;
+};
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+const Router = () => {
+  const {page}=useApp();
+  const pages={dashboard:<DashboardPage/>,goals:<GoalsPage/>,
+    'goal-detail':<GoalDetailPage/>,journal:<JournalPage/>,
+    calendar:<CalendarPage/>,categories:<CategoriesPage/>,settings:<SettingsPage/>};
+  return pages[page]||<DashboardPage/>;
+};
+
+const App = () => {
+  const [isMd,setIsMd]=useState(window.innerWidth>=768);
+  useEffect(()=>{const h=()=>setIsMd(window.innerWidth>=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
+  return <AppProvider>
+    <div style={{display:'flex',height:'100dvh',overflow:'hidden',flexDirection:'row'}}>
+      {isMd&&<SideNav/>}
+      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
+        <div style={{flex:1,overflowY:'auto',paddingBottom:isMd?0:0}}>
+          <Router/>
+        </div>
+      </div>
+      {!isMd&&<BottomNav/>}
+    </div>
+  </AppProvider>;
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
