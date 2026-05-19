@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "name": "MetaFlow - Acompanhamento de Objetivos",
   "short_name": "MetaFlow",
@@ -88,3 +89,95 @@
     }
   ]
 }
+=======
+{
+  "name": "MetaFlow - Acompanhamento de Objetivos",
+  "short_name": "MetaFlow",
+  "description": "Acompanhe seus objetivos, hábitos e evolução pessoal com sincronização na nuvem",
+  "start_url": "/MetaFlow/",
+  "scope": "/MetaFlow/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0F172A",
+  "background_color": "#0F172A",
+  "categories": ["productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "/MetaFlow/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/MetaFlow/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/MetaFlow/icon-maskable-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/MetaFlow/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Novo Objetivo",
+      "short_name": "Objetivo",
+      "description": "Criar um novo objetivo rapidamente",
+      "url": "/MetaFlow/?page=goals",
+      "icons": [
+        {
+          "src": "/MetaFlow/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Novo Hábito",
+      "short_name": "Hábito",
+      "description": "Adicionar um novo hábito",
+      "url": "/MetaFlow/?page=habits",
+      "icons": [
+        {
+          "src": "/MetaFlow/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Escrever Diário",
+      "short_name": "Diário",
+      "description": "Criar nova entrada no diário",
+      "url": "/MetaFlow/?page=journal",
+      "icons": [
+        {
+          "src": "/MetaFlow/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/MetaFlow/screenshot-1.png",
+      "sizes": "540x720",
+      "form_factor": "narrow",
+      "type": "image/png"
+    },
+    {
+      "src": "/MetaFlow/screenshot-2.png",
+      "sizes": "1280x720",
+      "form_factor": "wide",
+      "type": "image/png"
+    }
+  ]
+}
+>>>>>>> 741c92e (fix: pass firebase secrets to build)

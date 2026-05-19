@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Dependencies
 node_modules/
 /.pnp
@@ -40,3 +41,48 @@ lerna-debug.log*
 
 # Cache
 .eslintcache
+=======
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env*.local
+
+# Build output
+/dist
+/build
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Testing
+/coverage
+.nyc_output
+
+# Misc
+*.pem
+.cache
+
+# Cache
+.eslintcache
+>>>>>>> 741c92e (fix: pass firebase secrets to build)
