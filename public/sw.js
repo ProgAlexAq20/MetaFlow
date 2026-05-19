@@ -1,9 +1,9 @@
-const CACHE_NAME = 'metaflow-v2';
+const CACHE_NAME = 'metaflow-v1';
 const urlsToCache = [
-  './',
-  './index.html',
-  './manifest.json',
-  './favicon.ico',
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/favicon.ico',
 ];
 
 // Install event - cache resources
@@ -42,13 +42,13 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
+  // Skip non-GET requests and external requests
+  if (request.method !== 'GET' || url.origin !== self.location.origin) {
     return;
   }
 
   // Skip Firebase and other API calls
-  if (url.pathname.includes('/api/') || url.hostname.includes('firebaseapp') || url.hostname.includes('google')) {
+  if (url.pathname.includes('/api/') || url.hostname.includes('firebaseapp')) {
     event.respondWith(
       fetch(request).catch(() => {
         // Return offline response for API calls
@@ -74,9 +74,7 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           return caches.match(request).then((response) => {
-            return response || caches.match('./index.html').then((indexResponse) => {
-              return indexResponse || new Response('Offline - Page not cached', { status: 503 });
-            });
+            return response || new Response('Offline - Page not cached', { status: 503 });
           });
         })
     );
@@ -118,8 +116,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'MetaFlow';
   const options = {
     body: data.body || 'Nova atualização',
-    icon: './icon-192x192.png',
-    badge: './icon-96x96.png',
+    icon: '/icon-192x192.png',
+    badge: '/icon-96x96.png',
     tag: 'metaflow-notification',
     requireInteraction: false,
   };
@@ -138,7 +136,7 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('./');
+        return clients.openWindow('/');
       }
     })
   );
