@@ -16,7 +16,7 @@ import OnboardingModal from './components/OnboardingModal';
 
 function App() {
   const { user, loading: authLoading } = useContext(AuthContext);
-  const { loading: dataLoading, error: dataError, settings } = useContext(DataContext);
+  const { loading: dataLoading, error: dataError, settings, toast } = useContext(DataContext);
   const { currentTheme } = useContext(ThemeContext);
   const [currentPage, setCurrentPage] = React.useState('dashboard');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -98,6 +98,17 @@ function App() {
       {dataError && (
         <div className="fixed top-16 left-0 right-0 bg-red-900 bg-opacity-50 p-2 text-center" style={{ color: '#FCA5A5' }}>
           <p className="text-sm">{dataError}</p>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-lg text-white z-50"
+          style={{
+            backgroundColor: toast.type === 'error' ? '#DC2626' : 'rgba(30, 64, 175, 0.95)',
+          }}
+        >
+          {toast.message}
         </div>
       )}
 

@@ -91,7 +91,7 @@ const InsightsPage = () => {
       return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
     }).length;
 
-    // Active days in month (days with at least one habit completed)
+    // Active days in month (habits, check-ins ou diário)
     const activeDaysInMonth = new Set();
     habits.forEach((h) => {
       (h.completedDates || []).forEach((date) => {
@@ -100,6 +100,18 @@ const InsightsPage = () => {
           activeDaysInMonth.add(d.getDate());
         }
       });
+    });
+    checkIns.forEach((checkIn) => {
+      const d = new Date(checkIn.date);
+      if (d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()) {
+        activeDaysInMonth.add(d.getDate());
+      }
+    });
+    journalEntries.forEach((entry) => {
+      const d = new Date(entry.date);
+      if (d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()) {
+        activeDaysInMonth.add(d.getDate());
+      }
     });
 
     return {

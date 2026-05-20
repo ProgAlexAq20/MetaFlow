@@ -20,7 +20,7 @@ import QuickCheckIn from '../components/QuickCheckIn';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
-  const { goals, habits, journalEntries, checkIns, loading } = useContext(DataContext);
+  const { goals, habits, journalEntries, checkIns, categories, updateHabit, loading } = useContext(DataContext);
   const [isQuickCheckInOpen, setIsQuickCheckInOpen] = useState(false);
 
   // Listen for custom event to open quick check-in
@@ -56,6 +56,37 @@ const Dashboard = () => {
       entryDate.getFullYear() === today.getFullYear()
     );
   });
+
+  const markFirstPendingHabit = () => {
+    const today = new Date();
+    const pendingHabit = activeHabits.find((h) => {
+      const completedToday = (h.completedDates || []).some((date) => {
+        const d = new Date(date);
+        return (
+          d.getDate() === today.getDate() &&
+          d.getMonth() === today.getMonth() &&
+          d.getFullYear() === today.getFullYear()
+        );
+      });
+      return !completedToday && habitUtils.shouldCompleteToday(h);
+    });
+
+    if (pendingHabit) {
+      const todayKey = today.toISOString().split('T')[0];
+      const completedDates = pendingHabit.completedDates || [];
+      const alreadyCompleted = completedDates.some((date) => date.startsWith(todayKey));
+      const updatedDates = alreadyCompleted
+        ? completedDates
+        : [...completedDates, today.toISOString()];
+      const currentStreak = habitUtils.calculateStreak(updatedDates);
+      const bestStreak = Math.max(pendingHabit.bestStreak || 0, currentStreak);
+      updateHabit(pendingHabit.id, {
+        completedDates: updatedDates,
+        currentStreak,
+        bestStreak,
+      });
+    }
+  };
 
   // Calculate "Hoje" card data
   const todayData = (() => {
@@ -250,18 +281,49 @@ const Dashboard = () => {
             Check-in rápido
           </button>
 
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'journal' }))}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-80"
-            style={{
-              backgroundColor: 'var(--color-background)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            <BookOpen size={18} />
-            Novo diário
-          </button>
+          {todayData.pendingHabits > 0 && (
+            <button
+              onClick={markFirstPendingHabit}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-90"
+              style={{
+                backgroundColor: 'var(--color-secondary)',
+                color: '#fff',
+              }}
+            >
+              <CheckCircle2 size={18} />
+              Marcar hábito
+            </button>
+          )}
+
+          {!todayJournal && (
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'journal' }))}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-80"
+              style={{
+                backgroundColor: 'var(--color-background)',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              <BookOpen size={18} />
+              Escrever diário
+            </button>
+          )}
+
+          {todayData.atRiskGoals > 0 && (
+            <button
+              onClick={() => setIsQuickCheckInOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-80"
+              style={{
+                backgroundColor: 'var(--color-background)',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              <AlertCircle size={18} />
+              Registrar avanço
+            </button>
+          )}
 
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'habits' }))}
@@ -449,32 +511,71 @@ const Dashboard = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {activeGoals.slice(0, 5).map((goal) => (
-              <div
-                key={goal.id}
-                className="p-4 rounded-lg"
-                style={{ backgroundColor: 'var(--color-background)' }}
-              >
-                <div className="flex items-between justify-between mb-2">
-                  <p className="font-medium">{goal.title}</p>
-                  <span style={{ color: GOAL_STATUS_COLORS[goal.status] }} className="text-sm">
-                    {goalUtils.getProgressPercent(goal)}%
-                  </span>
-                </div>
+            {activeGoals.slice(0, 5).map((goal) => {
+              const category = categories.find((cat) => cat.id === goal.categoryId);
+              const recentGoalCheckIns = checkIns
+                .filter((checkIn) => checkIn.goalId === goal.id)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+              const lastCheckIn = recentGoalCheckIns[0];
+              const daysRemaining = goal.endDate ? dateUtils.daysUntil(goal.endDate) : null;
+
+              return (
                 <div
-                  className="w-full h-2 rounded-full overflow-hidden"
-                  style={{ backgroundColor: 'var(--color-border)' }}
+                  key={goal.id}
+                  className="p-4 rounded-lg"
+                  style={{ backgroundColor: 'var(--color-background)' }}
                 >
+                  <div className="flex items-between justify-between mb-2">
+                    <div>
+                      <p className="font-medium">{goal.title}</p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        {category ? category.name : 'Sem categoria'} • {goal.status}
+                      </p>
+                    </div>
+                    <span style={{ color: GOAL_STATUS_COLORS[goal.status] }} className="text-sm">
+                      {goalUtils.getProgressPercent(goal)}%
+                    </span>
+                  </div>
+
+                  <div className="mb-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {goal.endDate
+                      ? `Prazo: ${dateUtils.formatDate(goal.endDate)} (${daysRemaining >= 0 ? `${daysRemaining} dias` : 'atrase'})`
+                      : 'Sem prazo definido'}
+                  </div>
+
                   <div
-                    className="h-full transition-all duration-300"
+                    className="w-full h-2 rounded-full overflow-hidden mb-3"
+                    style={{ backgroundColor: 'var(--color-border)' }}
+                  >
+                    <div
+                      className="h-full transition-all duration-300"
+                      style={{
+                        width: `${goalUtils.getProgressPercent(goal)}%`,
+                        backgroundColor: GOAL_STATUS_COLORS[goal.status],
+                      }}
+                    ></div>
+                  </div>
+
+                  {lastCheckIn && (
+                    <p className="text-xs mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+                      Último check-in: {dateUtils.formatDate(lastCheckIn.date)}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() => setIsQuickCheckInOpen(true)}
+                    className="px-3 py-2 rounded-lg text-sm font-medium transition hover:opacity-90"
                     style={{
-                      width: `${goalUtils.getProgressPercent(goal)}%`,
-                      backgroundColor: GOAL_STATUS_COLORS[goal.status],
+                      backgroundColor: 'var(--color-background)',
+                      color: 'var(--color-text)',
+                      border: '1px solid var(--color-border)',
                     }}
-                  ></div>
+                  >
+                    Check-in rápido
+                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

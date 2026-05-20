@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { AuthContext } from './AuthProvider';
 import {
   goalsService,
@@ -9,6 +9,7 @@ import {
   settingsService,
 } from '../services/firebase/firestoreService';
 import { DEFAULT_CATEGORIES } from '../data/defaultCategories';
+import { goalUtils, habitUtils, dateUtils } from '../utils/helpers';
 
 export const DataContext = createContext();
 
@@ -23,22 +24,42 @@ export const DataProvider = ({ children }) => {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [unsubscribers, setUnsubscribers] = useState([]);
+  const [toast, setToast] = useState(null);
+  const unsubscribersRef = useRef([]);
+  const toastTimeoutRef = useRef(null);
 
-  // Initialize data when user logs in
+  const createOptimisticId = () => {
+    return typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  };
+
+  const showToast = useCallback((message, type = 'success') => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (!user) {
-      // Clear data when user logs out
       setGoals([]);
       setHabits([]);
       setCategories([]);
       setJournalEntries([]);
       setCheckIns([]);
       setSettings(null);
-      
-      // Unsubscribe from all listeners
-      unsubscribers.forEach((unsub) => unsub());
-      setUnsubscribers([]);
+      unsubscribersRef.current.forEach((unsub) => unsub());
+      unsubscribersRef.current = [];
       return;
     }
 
@@ -46,7 +67,6 @@ export const DataProvider = ({ children }) => {
       try {
         setLoading(true);
 
-        // Load all data in parallel
         const [goalsData, habitsData, categoriesData, journalData, checkInsData, settingsData] =
           await Promise.all([
             goalsService.getGoals(user.uid),
@@ -62,7 +82,6 @@ export const DataProvider = ({ children }) => {
         setJournalEntries(journalData);
         setCheckIns(checkInsData);
 
-        // If no categories exist, create default ones
         if (categoriesData.length === 0) {
           const newCategories = [];
           for (const defaultCat of DEFAULT_CATEGORIES) {
@@ -74,12 +93,11 @@ export const DataProvider = ({ children }) => {
           setCategories(categoriesData);
         }
 
-        // Set default settings if not exists
         if (!settingsData) {
           const defaultSettings = {
             theme: 'azure-premium',
             preferredView: 'dashboard',
-            createdAt: new Date(),
+            createdAt: new Date().toISOString(),
           };
           await settingsService.updateSettings(user.uid, defaultSettings);
           setSettings(defaultSettings);
@@ -87,15 +105,20 @@ export const DataProvider = ({ children }) => {
           setSettings(settingsData);
         }
 
-        // Subscribe to real-time updates
-        const unsubGoals = goalsService.onGoalsChange(user.uid, setGoals);
-        const unsubHabits = habitsService.onHabitsChange(user.uid, setHabits);
+        unsubscribersRef.current.forEach((unsub) => unsub());
+        unsubscribersRef.current = [
+          goalsService.onGoalsChange(user.uid, setGoals),
+          habitsService.onHabitsChange(user.uid, setHabits),
+          categoriesService.onCategoriesChange(user.uid, setCategories),
+          journalService.onJournalEntriesChange(user.uid, setJournalEntries),
+          checkInsService.onCheckInsChange(user.uid, setCheckIns),
+          settingsService.onSettingsChange(user.uid, setSettings),
+        ];
 
-        setUnsubscribers([unsubGoals, unsubHabits]);
         setError(null);
       } catch (err) {
         console.error('Data initialization error:', err);
-        setError(err.message);
+        setError(err.message || 'Erro ao carregar dados');
       } finally {
         setLoading(false);
       }
@@ -104,233 +127,525 @@ export const DataProvider = ({ children }) => {
     initializeData();
 
     return () => {
-      unsubscribers.forEach((unsub) => unsub());
+      unsubscribersRef.current.forEach((unsub) => unsub());
+      unsubscribersRef.current = [];
     };
   }, [user]);
-
-  // ============================================================================
-  // GOALS
-  // ============================================================================
 
   const createGoal = useCallback(
     async (goalData) => {
       if (!user) throw new Error('User not authenticated');
+      const id = createOptimisticId();
+      const optimisticGoal = {
+        id,
+        ...goalData,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setGoals((prev) => [optimisticGoal, ...prev]);
+      showToast('Objetivo criado');
+
       try {
-        const id = await goalsService.createGoal(user.uid, goalData);
+        await goalsService.createGoal(user.uid, goalData, id);
         return id;
       } catch (err) {
-        setError(err.message);
+        setGoals((prev) => prev.filter((goal) => goal.id !== id));
+        const message = err?.message || 'Erro ao criar objetivo, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, showToast]
   );
 
   const updateGoal = useCallback(
     async (goalId, goalData) => {
       if (!user) throw new Error('User not authenticated');
+      const previousGoals = goals;
+      setGoals((prev) =>
+        prev.map((goal) =>
+          goal.id === goalId
+            ? { ...goal, ...goalData, updatedAt: new Date().toISOString() }
+            : goal
+        )
+      );
+      showToast('Objetivo atualizado');
+
       try {
         await goalsService.updateGoal(user.uid, goalId, goalData);
       } catch (err) {
-        setError(err.message);
+        setGoals(previousGoals);
+        const message = err?.message || 'Erro ao atualizar objetivo, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, goals, showToast]
   );
 
   const deleteGoal = useCallback(
     async (goalId) => {
       if (!user) throw new Error('User not authenticated');
+      const previousGoals = goals;
+      setGoals((prev) => prev.filter((goal) => goal.id !== goalId));
+      showToast('Objetivo removido');
+
       try {
         await goalsService.deleteGoal(user.uid, goalId);
       } catch (err) {
-        setError(err.message);
+        setGoals(previousGoals);
+        const message = err?.message || 'Erro ao remover objetivo, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, goals, showToast]
   );
-
-  // ============================================================================
-  // HABITS
-  // ============================================================================
 
   const createHabit = useCallback(
     async (habitData) => {
       if (!user) throw new Error('User not authenticated');
+      const id = createOptimisticId();
+      const optimisticHabit = {
+        id,
+        ...habitData,
+        completedDates: [],
+        currentStreak: 0,
+        bestStreak: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setHabits((prev) => [optimisticHabit, ...prev]);
+      showToast('Hábito criado');
+
       try {
-        const id = await habitsService.createHabit(user.uid, habitData);
+        await habitsService.createHabit(user.uid, habitData, id);
         return id;
       } catch (err) {
-        setError(err.message);
+        setHabits((prev) => prev.filter((habit) => habit.id !== id));
+        const message = err?.message || 'Erro ao criar hábito, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, showToast]
   );
 
   const updateHabit = useCallback(
     async (habitId, habitData) => {
       if (!user) throw new Error('User not authenticated');
+      const previousHabits = habits;
+      setHabits((prev) =>
+        prev.map((habit) =>
+          habit.id === habitId
+            ? { ...habit, ...habitData, updatedAt: new Date().toISOString() }
+            : habit
+        )
+      );
+      showToast('Hábito atualizado');
+
       try {
         await habitsService.updateHabit(user.uid, habitId, habitData);
       } catch (err) {
-        setError(err.message);
+        setHabits(previousHabits);
+        const message = err?.message || 'Erro ao atualizar hábito, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, habits, showToast]
   );
 
   const deleteHabit = useCallback(
     async (habitId) => {
       if (!user) throw new Error('User not authenticated');
+      const previousHabits = habits;
+      setHabits((prev) => prev.filter((habit) => habit.id !== habitId));
+      showToast('Hábito removido');
+
       try {
         await habitsService.deleteHabit(user.uid, habitId);
       } catch (err) {
-        setError(err.message);
+        setHabits(previousHabits);
+        const message = err?.message || 'Erro ao remover hábito, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, habits, showToast]
   );
-
-  // ============================================================================
-  // CATEGORIES
-  // ============================================================================
 
   const createCategory = useCallback(
     async (categoryData) => {
       if (!user) throw new Error('User not authenticated');
+      const id = createOptimisticId();
+      const optimisticCategory = {
+        id,
+        ...categoryData,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setCategories((prev) => [optimisticCategory, ...prev]);
+      showToast('Categoria criada');
+
       try {
-        const id = await categoriesService.createCategory(user.uid, categoryData);
+        await categoriesService.createCategory(user.uid, categoryData, id);
         return id;
       } catch (err) {
-        setError(err.message);
+        setCategories((prev) => prev.filter((category) => category.id !== id));
+        const message = err?.message || 'Erro ao criar categoria, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, showToast]
   );
 
   const updateCategory = useCallback(
     async (categoryId, categoryData) => {
       if (!user) throw new Error('User not authenticated');
+      const previousCategories = categories;
+      setCategories((prev) =>
+        prev.map((category) =>
+          category.id === categoryId
+            ? { ...category, ...categoryData, updatedAt: new Date().toISOString() }
+            : category
+        )
+      );
+      showToast('Categoria atualizada');
+
       try {
         await categoriesService.updateCategory(user.uid, categoryId, categoryData);
       } catch (err) {
-        setError(err.message);
+        setCategories(previousCategories);
+        const message = err?.message || 'Erro ao atualizar categoria, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, categories, showToast]
   );
 
   const deleteCategory = useCallback(
     async (categoryId) => {
       if (!user) throw new Error('User not authenticated');
+      const previousCategories = categories;
+      setCategories((prev) => prev.filter((category) => category.id !== categoryId));
+      showToast('Categoria removida');
+
       try {
         await categoriesService.deleteCategory(user.uid, categoryId);
       } catch (err) {
-        setError(err.message);
+        setCategories(previousCategories);
+        const message = err?.message || 'Erro ao remover categoria, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, categories, showToast]
   );
-
-  // ============================================================================
-  // JOURNAL ENTRIES
-  // ============================================================================
 
   const createJournalEntry = useCallback(
     async (entryData) => {
       if (!user) throw new Error('User not authenticated');
+      const id = createOptimisticId();
+      const optimisticEntry = {
+        id,
+        ...entryData,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setJournalEntries((prev) => [optimisticEntry, ...prev]);
+      showToast('Entrada de diário salva');
+
       try {
-        const id = await journalService.createJournalEntry(user.uid, entryData);
+        await journalService.createJournalEntry(user.uid, entryData, id);
         return id;
       } catch (err) {
-        setError(err.message);
+        setJournalEntries((prev) => prev.filter((entry) => entry.id !== id));
+        const message = err?.message || 'Erro ao salvar diário, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, showToast]
   );
 
   const updateJournalEntry = useCallback(
     async (entryId, entryData) => {
       if (!user) throw new Error('User not authenticated');
+      const previousEntries = journalEntries;
+      setJournalEntries((prev) =>
+        prev.map((entry) =>
+          entry.id === entryId
+            ? { ...entry, ...entryData, updatedAt: new Date().toISOString() }
+            : entry
+        )
+      );
+      showToast('Diário atualizado');
+
       try {
         await journalService.updateJournalEntry(user.uid, entryId, entryData);
       } catch (err) {
-        setError(err.message);
+        setJournalEntries(previousEntries);
+        const message = err?.message || 'Erro ao atualizar diário, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, journalEntries, showToast]
   );
 
   const deleteJournalEntry = useCallback(
     async (entryId) => {
       if (!user) throw new Error('User not authenticated');
+      const previousEntries = journalEntries;
+      setJournalEntries((prev) => prev.filter((entry) => entry.id !== entryId));
+      showToast('Diário removido');
+
       try {
         await journalService.deleteJournalEntry(user.uid, entryId);
       } catch (err) {
-        setError(err.message);
+        setJournalEntries(previousEntries);
+        const message = err?.message || 'Erro ao remover diário, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, journalEntries, showToast]
   );
-
-  // ============================================================================
-  // CHECK-INS
-  // ============================================================================
 
   const createCheckIn = useCallback(
     async (checkInData) => {
       if (!user) throw new Error('User not authenticated');
+
+      const id = createOptimisticId();
+      const completedAt = checkInData.date || new Date().toISOString();
+      const optimisticCheckIn = {
+        id,
+        ...checkInData,
+        date: completedAt,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const previousCheckIns = checkIns;
+      const previousHabits = habits;
+      const previousGoals = goals;
+
+      setCheckIns((prev) => [optimisticCheckIn, ...prev]);
+
+      let habitUpdate = null;
+      let goalUpdate = null;
+
+      if (checkInData.habitId) {
+        const habitToUpdate = habits.find((habit) => habit.id === checkInData.habitId);
+        if (habitToUpdate) {
+          const todayKey = completedAt.split('T')[0];
+          const completedDates = habitToUpdate.completedDates || [];
+          const alreadyCompleted = completedDates.some((date) => date.startsWith(todayKey));
+          const updatedDates = alreadyCompleted
+            ? completedDates
+            : [...completedDates, completedAt];
+          const currentStreak = habitUtils.calculateStreak(updatedDates);
+          const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
+          habitUpdate = {
+            completedDates: updatedDates,
+            currentStreak,
+            bestStreak,
+            updatedAt: new Date().toISOString(),
+          };
+          setHabits((prev) =>
+            prev.map((habit) =>
+              habit.id === habitToUpdate.id ? { ...habit, ...habitUpdate } : habit
+            )
+          );
+        }
+      }
+
+      if (checkInData.goalId) {
+        const goalToUpdate = goals.find((goal) => goal.id === checkInData.goalId);
+        if (goalToUpdate) {
+          const currentValue = goalToUpdate.currentValue || 0;
+          const progressDelta = checkInData.progressDelta || 0;
+          const updatedGoal = {
+            ...goalToUpdate,
+            currentValue: Math.min(currentValue + progressDelta, goalToUpdate.targetValue || 100),
+            checkIns: [...(goalToUpdate.checkIns || []), id],
+            status: goalUtils.calculateStatus({
+              ...goalToUpdate,
+              currentValue: Math.min(currentValue + progressDelta, goalToUpdate.targetValue || 100),
+            }),
+            updatedAt: new Date().toISOString(),
+          };
+
+          if (goalToUpdate.progressType === 'tasks' && checkInData.taskId) {
+            updatedGoal.completedTasks = (goalToUpdate.completedTasks || 0) + 1;
+          }
+
+          goalUpdate = updatedGoal;
+          setGoals((prev) =>
+            prev.map((goal) => (goal.id === goalToUpdate.id ? updatedGoal : goal))
+          );
+        }
+      }
+
+      showToast('Check-in salvo');
+
       try {
-        const id = await checkInsService.createCheckIn(user.uid, checkInData);
+        await checkInsService.createCheckIn(user.uid, checkInData, id);
+        if (habitUpdate && checkInData.habitId) {
+          await habitsService.updateHabit(user.uid, checkInData.habitId, habitUpdate);
+        }
+        if (goalUpdate && checkInData.goalId) {
+          await goalsService.updateGoal(user.uid, checkInData.goalId, {
+            currentValue: goalUpdate.currentValue,
+            status: goalUpdate.status,
+            checkIns: goalUpdate.checkIns,
+            completedTasks: goalUpdate.completedTasks,
+          });
+        }
         return id;
       } catch (err) {
-        setError(err.message);
+        setCheckIns(previousCheckIns);
+        setHabits(previousHabits);
+        setGoals(previousGoals);
+        const message = err?.message || 'Erro ao salvar check-in, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, checkIns, habits, goals, showToast]
   );
 
   const updateCheckIn = useCallback(
     async (checkInId, checkInData) => {
       if (!user) throw new Error('User not authenticated');
+      const previousCheckIns = checkIns;
+      setCheckIns((prev) =>
+        prev.map((checkIn) =>
+          checkIn.id === checkInId
+            ? { ...checkIn, ...checkInData, updatedAt: new Date().toISOString() }
+            : checkIn
+        )
+      );
+      showToast('Check-in atualizado');
+
       try {
         await checkInsService.updateCheckIn(user.uid, checkInId, checkInData);
       } catch (err) {
-        setError(err.message);
+        setCheckIns(previousCheckIns);
+        const message = err?.message || 'Erro ao atualizar check-in, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, checkIns, showToast]
   );
 
   const deleteCheckIn = useCallback(
     async (checkInId) => {
       if (!user) throw new Error('User not authenticated');
+      const prevCheckIns = checkIns;
+      const prevHabits = habits;
+      const prevGoals = goals;
+      const targetCheckIn = checkIns.find((checkIn) => checkIn.id === checkInId);
+
+      setCheckIns((prev) => prev.filter((checkIn) => checkIn.id !== checkInId));
+
+      if (targetCheckIn?.habitId) {
+        const habitToUpdate = habits.find((habit) => habit.id === targetCheckIn.habitId);
+        if (habitToUpdate) {
+          const removedDate = targetCheckIn.date.split('T')[0];
+          const updatedDates = (habitToUpdate.completedDates || []).filter(
+            (date) => !date.startsWith(removedDate)
+          );
+          const currentStreak = habitUtils.calculateStreak(updatedDates);
+          const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
+          setHabits((prev) =>
+            prev.map((habit) =>
+              habit.id === habitToUpdate.id
+                ? { ...habit, completedDates: updatedDates, currentStreak, bestStreak, updatedAt: new Date().toISOString() }
+                : habit
+            )
+          );
+        }
+      }
+
+      if (targetCheckIn?.goalId) {
+        const goalToUpdate = goals.find((goal) => goal.id === targetCheckIn.goalId);
+        if (goalToUpdate) {
+          const updatedGoal = {
+            ...goalToUpdate,
+            currentValue: Math.max((goalToUpdate.currentValue || 0) - (targetCheckIn.progressDelta || 0), 0),
+            checkIns: (goalToUpdate.checkIns || []).filter((id) => id !== checkInId),
+            updatedAt: new Date().toISOString(),
+          };
+          updatedGoal.status = goalUtils.calculateStatus(updatedGoal);
+          setGoals((prev) =>
+            prev.map((goal) => (goal.id === goalToUpdate.id ? updatedGoal : goal))
+          );
+        }
+      }
+
+      showToast('Check-in removido');
+
       try {
         await checkInsService.deleteCheckIn(user.uid, checkInId);
+        if (targetCheckIn?.habitId) {
+          const habitToUpdate = habits.find((habit) => habit.id === targetCheckIn.habitId);
+          if (habitToUpdate) {
+            const removedDate = targetCheckIn.date.split('T')[0];
+            const updatedDates = (habitToUpdate.completedDates || []).filter(
+              (date) => !date.startsWith(removedDate)
+            );
+            const currentStreak = habitUtils.calculateStreak(updatedDates);
+            const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
+            await habitsService.updateHabit(user.uid, habitToUpdate.id, {
+              completedDates: updatedDates,
+              currentStreak,
+              bestStreak,
+            });
+          }
+        }
+        if (targetCheckIn?.goalId) {
+          const goalToUpdate = goals.find((goal) => goal.id === targetCheckIn.goalId);
+          if (goalToUpdate) {
+            const updatedCurrentValue = Math.max((goalToUpdate.currentValue || 0) - (targetCheckIn.progressDelta || 0), 0);
+            const updatedGoal = {
+              currentValue: updatedCurrentValue,
+              status: goalUtils.calculateStatus({ ...goalToUpdate, currentValue: updatedCurrentValue }),
+              checkIns: (goalToUpdate.checkIns || []).filter((id) => id !== checkInId),
+            };
+            await goalsService.updateGoal(user.uid, goalToUpdate.id, updatedGoal);
+          }
+        }
       } catch (err) {
-        setError(err.message);
+        setCheckIns(prevCheckIns);
+        setHabits(prevHabits);
+        setGoals(prevGoals);
+        const message = err?.message || 'Erro ao remover check-in, tente novamente';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, checkIns, habits, goals, showToast]
   );
-
-  // ============================================================================
-  // SETTINGS
-  // ============================================================================
 
   const updateSettings = useCallback(
     async (settingsData) => {
@@ -339,51 +654,42 @@ export const DataProvider = ({ children }) => {
         await settingsService.updateSettings(user.uid, settingsData);
         setSettings((prev) => ({ ...prev, ...settingsData }));
       } catch (err) {
-        setError(err.message);
+        const message = err?.message || 'Erro ao salvar configurações';
+        setError(message);
+        showToast(message, 'error');
         throw err;
       }
     },
-    [user]
+    [user, showToast]
   );
 
   const value = {
-    // Goals
     goals,
     createGoal,
     updateGoal,
     deleteGoal,
-
-    // Habits
     habits,
     createHabit,
     updateHabit,
     deleteHabit,
-
-    // Categories
     categories,
     createCategory,
     updateCategory,
     deleteCategory,
-
-    // Journal
     journalEntries,
     createJournalEntry,
     updateJournalEntry,
     deleteJournalEntry,
-
-    // Check-ins
     checkIns,
     createCheckIn,
     updateCheckIn,
     deleteCheckIn,
-
-    // Settings
     settings,
     updateSettings,
-
-    // State
     loading,
     error,
+    toast,
+    showToast,
   };
 
   return (

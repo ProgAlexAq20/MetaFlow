@@ -82,9 +82,9 @@ export const goalsService = {
     return goalSnap.exists() ? { id: goalSnap.id, ...goalSnap.data() } : null;
   },
 
-  async createGoal(userId, goalData) {
+  async createGoal(userId, goalData, id = null) {
     const goalsRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.GOALS);
-    const goalRef = doc(goalsRef);
+    const goalRef = id ? doc(goalsRef, id) : doc(goalsRef);
     const now = serverTimestamp();
     
     await setDoc(goalRef, {
@@ -162,9 +162,9 @@ export const habitsService = {
     return habitSnap.exists() ? { id: habitSnap.id, ...habitSnap.data() } : null;
   },
 
-  async createHabit(userId, habitData) {
+  async createHabit(userId, habitData, id = null) {
     const habitsRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.HABITS);
-    const habitRef = doc(habitsRef);
+    const habitRef = id ? doc(habitsRef, id) : doc(habitsRef);
     const now = serverTimestamp();
     
     await setDoc(habitRef, {
@@ -238,14 +238,14 @@ export const categoriesService = {
     }));
   },
 
-  async createCategory(userId, categoryData) {
+  async createCategory(userId, categoryData, id = null) {
     const categoriesRef = collection(
       db,
       COLLECTIONS.USERS,
       userId,
       COLLECTIONS.CATEGORIES
     );
-    const categoryRef = doc(categoriesRef);
+    const categoryRef = id ? doc(categoriesRef, id) : doc(categoriesRef);
     const now = serverTimestamp();
     
     await setDoc(categoryRef, {
@@ -283,6 +283,17 @@ export const categoriesService = {
     
     return deleteDoc(categoryRef);
   },
+
+  onCategoriesChange(userId, callback) {
+    const categoriesRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.CATEGORIES);
+    return onSnapshot(categoriesRef, (snapshot) => {
+      const categories = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(categories);
+    });
+  },
 };
 
 // ============================================================================
@@ -306,14 +317,14 @@ export const journalService = {
     }));
   },
 
-  async createJournalEntry(userId, entryData) {
+  async createJournalEntry(userId, entryData, id = null) {
     const entriesRef = collection(
       db,
       COLLECTIONS.USERS,
       userId,
       COLLECTIONS.JOURNAL_ENTRIES
     );
-    const entryRef = doc(entriesRef);
+    const entryRef = id ? doc(entriesRef, id) : doc(entriesRef);
     const now = serverTimestamp();
     
     await setDoc(entryRef, {
@@ -351,6 +362,17 @@ export const journalService = {
     
     return deleteDoc(entryRef);
   },
+
+  onJournalEntriesChange(userId, callback) {
+    const entriesRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.JOURNAL_ENTRIES);
+    return onSnapshot(query(entriesRef, orderBy('date', 'desc')), (snapshot) => {
+      const entries = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(entries);
+    });
+  },
 };
 
 // ============================================================================
@@ -374,14 +396,14 @@ export const checkInsService = {
     }));
   },
 
-  async createCheckIn(userId, checkInData) {
+  async createCheckIn(userId, checkInData, id = null) {
     const checkInsRef = collection(
       db,
       COLLECTIONS.USERS,
       userId,
       COLLECTIONS.CHECK_INS
     );
-    const checkInRef = doc(checkInsRef);
+    const checkInRef = id ? doc(checkInsRef, id) : doc(checkInsRef);
     const now = serverTimestamp();
     
     await setDoc(checkInRef, {
@@ -419,6 +441,17 @@ export const checkInsService = {
     
     return deleteDoc(checkInRef);
   },
+
+  onCheckInsChange(userId, callback) {
+    const checkInsRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.CHECK_INS);
+    return onSnapshot(query(checkInsRef, orderBy('date', 'desc')), (snapshot) => {
+      const checkIns = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(checkIns);
+    });
+  },
 };
 
 // ============================================================================
@@ -443,6 +476,13 @@ export const settingsService = {
       },
       { merge: true }
     );
+  },
+
+  onSettingsChange(userId, callback) {
+    const settingsRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.SETTINGS, 'app');
+    return onSnapshot(settingsRef, (snapshot) => {
+      callback(snapshot.exists() ? snapshot.data() : null);
+    });
   },
 };
 
