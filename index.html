@@ -18,12 +18,11 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
-      // Register service worker for PWA support using Vite base URL
+      // Register service worker for PWA support
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          const base = import.meta.env.BASE_URL;
-          navigator.serviceWorker.register(`${base}sw.js`, {
-            scope: base,
+          navigator.serviceWorker.register('/MetaFlow/sw.js', {
+            scope: '/MetaFlow/',
           }).catch((error) => {
             console.log('Service worker registration failed:', error);
           });

@@ -12,6 +12,12 @@
   "categories": ["productivity", "lifestyle"],
   "icons": [
     {
+      "src": "/MetaFlow/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/MetaFlow/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
@@ -41,7 +47,7 @@
       "name": "Novo Objetivo",
       "short_name": "Objetivo",
       "description": "Criar um novo objetivo rapidamente",
-      "url": "/?page=goals",
+      "url": "/MetaFlow/?page=goals",
       "icons": [
         {
           "src": "/MetaFlow/icon-96x96.png",
