@@ -17,6 +17,7 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
   const {
     createCheckIn,
     createJournalEntry,
+    updateGoal,
     goals,
     habits,
     categories,
@@ -70,6 +71,20 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
       };
 
       await createCheckIn(checkInData);
+
+      // Update goal progress if related to a goal
+      if (relatedGoalId) {
+        const goal = goals.find((g) => g.id === relatedGoalId);
+        if (goal) {
+          const currentProgress = goal.currentValue || 0;
+          const targetValue = goal.targetValue || 100;
+          // Calculate progress increment based on progressDelta (default 5%)
+          const progressDelta = Math.round(targetValue * 0.05); // 5% of target
+          await updateGoal(relatedGoalId, {
+            currentValue: Math.min(currentProgress + progressDelta, targetValue),
+          });
+        }
+      }
 
       // Optionally save to journal
       if (saveToJournal) {
