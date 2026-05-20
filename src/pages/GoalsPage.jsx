@@ -1,10 +1,11 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { DataContext } from '../providers/DataProvider';
-import { Plus, Trash2, Edit2 } from 'lucide-react';
+import { Plus, Trash2, Edit2, X } from 'lucide-react';
 
 const GoalsPage = () => {
-  const { goals, createGoal, deleteGoal, categories, loading } = useContext(DataContext);
+  const { goals, createGoal, updateGoal, deleteGoal, categories, loading } = useContext(DataContext);
   const [showForm, setShowForm] = useState(false);
+  const [editingGoalId, setEditingGoalId] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -16,26 +17,64 @@ const GoalsPage = () => {
     status: 'active',
   });
 
+  // Update form when categories change and no goal is being edited
+  useEffect(() => {
+    if (!showForm && categories.length > 0 && !editingGoalId) {
+      setFormData(prev => ({
+        ...prev,
+        categoryId: prev.categoryId || categories[0]?.id || ''
+      }));
+    }
+  }, [categories, showForm, editingGoalId]);
+
+  const resetForm = () => {
+    setFormData({
+      title: '',
+      description: '',
+      categoryId: categories[0]?.id || '',
+      progressType: 'numeric',
+      targetValue: 100,
+      currentValue: 0,
+      priority: 'medium',
+      status: 'active',
+    });
+    setEditingGoalId(null);
+    setShowForm(false);
+  };
+
+  const handleEdit = (goal) => {
+    setFormData({
+      title: goal.title || '',
+      description: goal.description || '',
+      categoryId: goal.categoryId || categories[0]?.id || '',
+      progressType: goal.progressType || 'numeric',
+      targetValue: goal.targetValue || 100,
+      currentValue: goal.currentValue || 0,
+      priority: goal.priority || 'medium',
+      status: goal.status || 'active',
+    });
+    setEditingGoalId(goal.id);
+    setShowForm(true);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await createGoal({
-        ...formData,
-        startDate: new Date().toISOString(),
-      });
-      setFormData({
-        title: '',
-        description: '',
-        categoryId: categories[0]?.id || '',
-        progressType: 'numeric',
-        targetValue: 100,
-        currentValue: 0,
-        priority: 'medium',
-        status: 'active',
-      });
-      setShowForm(false);
+      if (editingGoalId) {
+        // Update existing goal
+        await updateGoal(editingGoalId, {
+          ...formData,
+        });
+      } else {
+        // Create new goal
+        await createGoal({
+          ...formData,
+          startDate: new Date().toISOString(),
+        });
+      }
+      resetForm();
     } catch (error) {
-      console.error('Error creating goal:', error);
+      console.error('Error saving goal:', error);
     }
   };
 
@@ -178,14 +217,15 @@ const GoalsPage = () => {
                 className="flex-1 px-4 py-2 rounded-lg text-white font-medium transition hover:opacity-90"
                 style={{ backgroundColor: 'var(--color-primary)' }}
               >
-                Criar Objetivo
+                {editingGoalId ? 'Salvar Alterações' : 'Criar Objetivo'}
               </button>
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 rounded-lg border"
+                onClick={resetForm}
+                className="px-4 py-2 rounded-lg border flex items-center gap-1"
                 style={{ borderColor: 'var(--color-border)' }}
               >
+                <X size={16} />
                 Cancelar
               </button>
             </div>
@@ -249,6 +289,7 @@ const GoalsPage = () => {
               </div>
               <div className="flex gap-2 ml-4">
                 <button
+                  onClick={() => handleEdit(goal)}
                   className="p-2 rounded-lg transition hover:opacity-80"
                   style={{ backgroundColor: 'var(--color-background)' }}
                 >

@@ -2,7 +2,7 @@ import React, { useContext, useState } from 'react';
 import { AuthContext } from '../providers/AuthProvider';
 import { DataContext } from '../providers/DataProvider';
 import { ThemeContext } from '../providers/ThemeProvider';
-import { Download, Upload, LogOut } from 'lucide-react';
+import { Download, Upload, LogOut, Mail } from 'lucide-react';
 import { storageUtils } from '../utils/helpers';
 
 const SettingsPage = () => {
@@ -10,6 +10,9 @@ const SettingsPage = () => {
   const { settings, updateSettings, goals, habits, categories } = useContext(DataContext);
   const { currentTheme, themes, changeTheme } = useContext(ThemeContext);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [supportSubject, setSupportSubject] = useState('');
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportError, setSupportError] = useState('');
 
   const handleExport = () => {
     const data = {
@@ -63,6 +66,44 @@ const SettingsPage = () => {
         setIsSigningOut(false);
       }
     }
+  };
+
+  const handleSupportSubmit = (e) => {
+    e.preventDefault();
+    
+    // Validate message
+    if (!supportMessage.trim()) {
+      setSupportError('Digite uma mensagem antes de enviar.');
+      return;
+    }
+    
+    setSupportError('');
+    
+    // Prepare email data
+    const subject = supportSubject.trim() || 'Suporte MetaFlow';
+    const now = new Date();
+    const formattedDate = now.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    
+    const body = `Usuário: ${user?.displayName || 'Não informado'}
+E-mail: ${user?.email || 'Não informado'}
+Data: ${formattedDate}
+
+Mensagem:
+${supportMessage.trim()}`;
+    
+    // Open email client
+    const mailtoLink = `mailto:imperiosuporte76@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoLink;
+    
+    // Clear form after sending
+    setSupportSubject('');
+    setSupportMessage('');
   };
 
   return (
@@ -185,6 +226,69 @@ const SettingsPage = () => {
           Seus dados são salvos no Firebase Cloud Firestore. Você pode exportar um backup
           em JSON para armazenar localmente.
         </p>
+      </div>
+
+      {/* Support Section */}
+      <div
+        className="p-6 rounded-lg border mb-8"
+        style={{
+          backgroundColor: 'var(--color-card)',
+          borderColor: 'var(--color-border)',
+        }}
+      >
+        <h2 className="text-xl font-bold mb-4">Suporte</h2>
+        <p style={{ color: 'var(--color-text-secondary)' }} className="mb-4">
+          Precisa de ajuda, encontrou um erro ou quer enviar uma sugestão?
+        </p>
+        
+        <form onSubmit={handleSupportSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Assunto</label>
+            <input
+              type="text"
+              value={supportSubject}
+              onChange={(e) => setSupportSubject(e.target.value)}
+              placeholder="Ex: Sugestão de melhoria"
+              className="w-full px-4 py-2 rounded-lg border"
+              style={{
+                backgroundColor: 'var(--color-background)',
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">Mensagem</label>
+            <textarea
+              value={supportMessage}
+              onChange={(e) => setSupportMessage(e.target.value)}
+              placeholder="Descreva sua dúvida, erro ou sugestão..."
+              className="w-full px-4 py-2 rounded-lg border h-32"
+              style={{
+                backgroundColor: 'var(--color-background)',
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text)',
+              }}
+              required
+            />
+          </div>
+          
+          {supportError && (
+            <p style={{ color: '#FCA5A5' }} className="text-sm">
+              {supportError}
+            </p>
+          )}
+          
+          <button
+            type="submit"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white transition hover:opacity-90"
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          >
+            <Mail size={18} />
+            Enviar para suporte
+          </button>
+        </form>
       </div>
 
       {/* Data Stats Section */}
