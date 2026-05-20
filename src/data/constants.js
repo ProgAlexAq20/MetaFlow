@@ -59,6 +59,47 @@ export const THEMES = {
     textSecondary: '#94A3B8',
     border: '#1E293B',
   },
+  // Light / cute themes (fofas)
+  'pastel-rose': {
+    name: 'Rosa Doce',
+    primary: '#FF7AB6',
+    secondary: '#FFD6EC',
+    background: '#FFF7FB',
+    card: '#FFF1F6',
+    text: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#F3D7E3',
+  },
+  'lavender-sky': {
+    name: 'Lavanda Suave',
+    primary: '#C4A3FF',
+    secondary: '#EFD7FF',
+    background: '#FBF8FF',
+    card: '#F6F0FF',
+    text: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E9E0FF',
+  },
+  'peach-blossom': {
+    name: 'Pêssego Doce',
+    primary: '#FFB69E',
+    secondary: '#FFE7D9',
+    background: '#FFF7F3',
+    card: '#FFF1EB',
+    text: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#FDE7DB',
+  },
+  'soft-mint': {
+    name: 'Menta Suave',
+    primary: '#7EE7C8',
+    secondary: '#D6FAE7',
+    background: '#F6FFFB',
+    card: '#EFFFF4',
+    text: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#D9F6EA',
+  },
 };
 
 export const STATUS_COLORS = {
