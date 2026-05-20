@@ -1,298 +1,195 @@
-# 📋 MetaFlow v2 - Resumo da Implementação
+# MetaFlow - Melhorias de Produto Implementadas
 
-## ✅ O Que Foi Entregue
+## Resumo das Mudanças
 
-### 🔐 Autenticação & Segurança
-- ✅ **Google Sign-In** com Firebase Authentication
-- ✅ **signInWithPopup** com fallback automático para **signInWithRedirect**
-- ✅ **Persistência** de sessão com `browserLocalPersistence`
-- ✅ **Logout** seguro
-- ✅ **AuthProvider** context para toda a aplicação
-- ✅ **Firestore Security Rules** - Apenas o usuário acessa seus dados
-
-### ☁️ Sincronização & Dados
-- ✅ **Firestore Services** completos para:
-  - Goals (Objetivos)
-  - Habits (Hábitos)
-  - Categories (Categorias)
-  - Journal Entries (Entradas de Diário)
-  - Check-Ins (Check-ins)
-  - Settings (Configurações)
-  - User (Informações do Usuário)
-
-- ✅ **Real-time Sync** com `onSnapshot()`
-- ✅ **Offline Persistence** habilitado por padrão
-- ✅ **DataProvider** context como camada única de dados
-
-### 🎨 UI/UX & Design
-- ✅ **Theme System** com 6 temas premium:
-  1. Azul Premium
-  2. Roxo Noturno
-  3. Verde Evolução
-  4. Âmbar Foco
-  5. Vermelho Energia
-  6. Minimal Dark
-
-- ✅ **CSS Variables** para aplicação dinâmica de temas
-- ✅ **Responsive Design** - Mobile-first, funciona em todos os tamanhos
-- ✅ **Dark Mode** por padrão (premium)
-- ✅ **Status Colors** separadas (success, warning, danger, info)
-
-### 📱 PWA & Instalação
-- ✅ **manifest.json** completo com:
-  - Ícones para diferentes tamanhos
-  - Screenshots
-  - Start URL compatível com GitHub Pages
-  - Theme color
-  - Display standalone
-  - Shortcuts para ações rápidas
-
-- ✅ **Service Worker** (sw.js) com:
-  - Cache strategy (Network-first para HTML, Cache-first para assets)
-  - Offline support
-  - Push notifications ready
-  - Background sync ready
-
-- ✅ **Instalação como app** em:
-  - Android (Chrome)
-  - iOS (Safari)
-  - Desktop (Chrome/Edge)
-
-### 📄 Páginas & Componentes
-- ✅ **LoginPage** - Tela de login premium com Google
-- ✅ **Dashboard** - Resumo com stats, objetivos em risco
-- ✅ **GoalsPage** - CRUD completo de objetivos
-- ✅ **HabitsPage** - Gestão de hábitos com check-in diário
-- ✅ **JournalPage** - Entradas de diário com mood e categorias
-- ✅ **SettingsPage** - Temas, backup, dados do usuário
-- ✅ **Navbar** - Navegação com menu mobile
-- ✅ **Responsive** - Todos os componentes são responsivos
-
-### 🛠️ Ferramentas & Utilities
-- ✅ **goalUtils** - Cálculo de status, progresso, etc.
-- ✅ **habitUtils** - Cálculo de streak, progresso semanal
-- ✅ **dateUtils** - Formatação e cálculo de datas
-- ✅ **storageUtils** - Export/import JSON, detecta dados locais
-- ✅ **Custom Hooks** - `useAuth()`, `useData()`, `useTheme()`
-- ✅ **Constants** - Temas, status, tipos de progresso, moods
-
-### 🚀 Deploy & CI/CD
-- ✅ **GitHub Pages** workflow automático
-- ✅ **vite.config.js** com suporte a base path
-- ✅ **Environment variables** via Vite
-- ✅ **Build otimizado** com minificação
-- ✅ **Service Worker** cache automático
-
-### 📚 Documentação
-- ✅ **README.md** - Documentação completa
-- ✅ **SETUP.md** - Setup rápido em 8 passos
-- ✅ **firestore.rules** - Regras de segurança prontas
-- ✅ **.env.local.example** - Template de variáveis
-- ✅ **ICONS.md** - Guia para ícones do PWA
-- ✅ **.gitignore** - Configuração Git correta
-
-## 🎯 Estrutura de Arquivos
-
-```
-MetaFlow/
-├── public/
-│   ├── manifest.json          # Configuração PWA
-│   ├── sw.js                  # Service Worker
-│   ├── ICONS.md               # Guia de ícones
-│   └── (ícones PNG)
-├── src/
-│   ├── components/
-│   │   └── Navbar.jsx
-│   ├── pages/
-│   │   ├── LoginPage.jsx
-│   │   ├── Dashboard.jsx
-│   │   ├── GoalsPage.jsx
-│   │   ├── HabitsPage.jsx
-│   │   ├── JournalPage.jsx
-│   │   └── SettingsPage.jsx
-│   ├── providers/
-│   │   ├── AuthProvider.jsx
-│   │   ├── DataProvider.jsx
-│   │   └── ThemeProvider.jsx
-│   ├── services/
-│   │   └── firebase/
-│   │       ├── firebaseConfig.js
-│   │       ├── firebaseConfig.example.js
-│   │       ├── authService.js
-│   │       └── firestoreService.js
-│   ├── hooks/
-│   │   └── useContexts.js
-│   ├── utils/
-│   │   └── helpers.js
-│   ├── data/
-│   │   ├── constants.js
-│   │   └── defaultCategories.js
-│   ├── styles/
-│   │   └── global.css
-│   ├── main.jsx
-│   └── App.jsx
-├── .github/
-│   └── workflows/
-│       └── deploy.yml
-├── index.html
-├── vite.config.js
-├── tailwind.config.js
-├── postcss.config.js
-├── package.json
-├── firestore.rules
-├── .env.local.example
-├── .gitignore
-├── README.md
-└── SETUP.md
-```
-
-## 🔧 Stack Tecnológico Implementado
-
-- **React 18** - UI moderna
-- **Vite** - Build tool rápido (< 300ms)
-- **Tailwind CSS** - Estilo responsivo
-- **Firebase 10.7** - Auth + Firestore
-- **Lucide React** - 400+ ícones
-- **date-fns** - Manipulação de datas
-- **GitHub Actions** - CI/CD automático
-
-## 🎓 Conceitos Implementados
-
-### Padrões React
-- ✅ Context API para state global
-- ✅ Custom Hooks para reutilização
-- ✅ Componentes funcionais
-- ✅ useEffect para lifecycle
-
-### Firebase
-- ✅ onAuthStateChanged listener
-- ✅ Google OAuth 2.0
-- ✅ Firestore CRUD operations
-- ✅ Real-time synchronization com onSnapshot
-- ✅ Offline persistence com IndexedDB
-
-### PWA
-- ✅ Service Worker cache strategies
-- ✅ Manifest.json configurado
-- ✅ Add to Home Screen pronto
-- ✅ Network-first + Cache-first
-
-### Segurança
-- ✅ Firebase Security Rules
-- ✅ User-scoped data isolation
-- ✅ No secrets no frontend
-- ✅ Environment variables para config
-
-## 🚀 Como Começar
-
-### Desenvolvimento Local
-
-```bash
-# 1. Instalar
-npm install
-
-# 2. Configurar .env.local (veja SETUP.md)
-cp .env.local.example .env.local
-
-# 3. Rodar
-npm run dev
-```
-
-### Deploy no GitHub Pages
-
-```bash
-# 1. Fazer push para main
-git push origin main
-
-# 2. GitHub Actions faz o resto automaticamente
-# Seu app estará em:
-# https://seu-usuario.github.io/seu-repo
-```
-
-## 📊 Dados do Firestore
-
-A estrutura padrão está pronta:
-
-```
-users/{userId}/
-├── goals/{goalId}
-├── habits/{habitId}
-├── categories/{categoryId}
-├── journalEntries/{entryId}
-├── checkIns/{checkInId}
-└── settings/app
-```
-
-Todas as operações são feitas através do **DataProvider**, não direto no Firestore.
-
-## ⚡ Performance
-
-- **Vite**: Build < 300ms em dev
-- **Service Worker**: Carregamento offline < 100ms
-- **Code Splitting**: Automático com Vite
-- **CSS-in-JS**: CSS Variables (0 overhead)
-
-## 🔜 Próximos Passos Opcionais
-
-### Melhorias Futuras
-1. **Migração de Dados Locais** - Detecta localStorage antigo e migra
-2. **Check-ins Modal** - Implementar modal de check-in diário
-3. **Relatório Semanal** - Dashboard semanal com stats
-4. **Calendário de Hábitos** - Heat map de consistência
-5. **Integração com Notificações** - Push notifications
-6. **Dark Mode Automático** - Segue preferência do SO
-7. **Sync com Google Calendar** - Integração de datas
-8. **Export PDF** - Gerar relatórios em PDF
-
-### Otimizações
-1. **Recharts** - Adicionar gráficos visuais
-2. **Animations** - Framer Motion para transições
-3. **Image Optimization** - Next/Image equivalente
-4. **Bundle Analysis** - Analisar tamanho final
-
-## 🐛 Troubleshooting
-
-### Firebase não conecta
-```bash
-# Verifique .env.local
-cat .env.local
-
-# Verifique console do navegador
-# DevTools → Console
-```
-
-### Service Worker não registra
-```bash
-# Limpe cache
-# DevTools → Application → Storage → Clear site data
-
-# Reinicie:
-npm run dev
-```
-
-### Build falha
-```bash
-# Limpe tudo
-rm -rf node_modules dist package-lock.json
-npm install
-npm run build
-```
-
-## 📞 Suporte
-
-Se tiver dúvidas:
-1. Leia **README.md** completo
-2. Leia **SETUP.md** passo a passo
-3. Verifique console do navegador (F12)
-4. Verifique Firebase Console
-5. Abra issue no GitHub
-
-## 📝 Licença
-
-MIT - Sinta-se livre para usar e modificar!
+Este documento descreve todas as melhorias implementadas no MetaFlow para melhorar a primeira experiência do usuário, aumentar a retenção diária e criar uma área de evolução/insights.
 
 ---
 
-**MetaFlow v2 está completo e pronto para produção! 🎉**
+## 1. Primeira Experiência / Onboarding
 
-Divirta-se acompanhando seus objetivos! 🚀
+### Tela de Login Melhorada (`src/pages/LoginPage.jsx`)
+- **Título claro**: "MetaFlow"
+- **Subtítulo**: "Acompanhe seus objetivos, hábitos e evolução pessoal em um só lugar."
+- **3 cards explicativos**:
+  1. **Objetivos** — Crie metas com prazo, progresso e tarefas.
+  2. **Hábitos** — Acompanhe sua consistência diária.
+  3. **Diário** — Registre sua evolução, humor e aprendizados.
+- **Frase de confiança**: "Seus dados ficam vinculados à sua conta Google."
+- **Botão de login com Google em destaque**
+- **Visual premium, limpo, mobile-first**
+
+### Mini Onboarding Pós-Login (`src/components/OnboardingModal.jsx`)
+- **3 passos**:
+  1. Crie seu primeiro objetivo.
+  2. Marque um hábito.
+  3. Registre um check-in ou diário.
+- **Salvo no Firestore** (`settings.onboardingCompleted`) para não mostrar novamente
+- **Design com indicador de progresso**
+- **Opções de voltar, avançar e pular**
+
+---
+
+## 2. Resumo do Dia no Dashboard
+
+### Card "Hoje" (`src/pages/Dashboard.jsx`)
+- **Hábitos pendentes hoje**: Hábitos ativos que ainda não foram marcados como concluídos hoje.
+- **Objetivos em risco**: Objetivos com status "risk" ou "overdue".
+- **Data do último diário**: Mostra "hoje", "ontem" ou data formatada.
+- **Sugestão de ação rápida** (muda conforme contexto):
+  - Se há hábitos pendentes: "Marque um hábito concluído."
+  - Se há objetivo em risco: "Registre avanço em um objetivo em risco."
+  - Se não há diário hoje: "Escreva uma breve nota no diário."
+  - Se tudo estiver em dia: "Você está no ritmo. Continue assim!"
+
+### Botões Rápidos
+- "Check-in rápido" — Abre modal de check-in rápido
+- "Novo diário" — Navega para página do diário
+- "Ver hábitos" — Navega para página de hábitos
+
+---
+
+## 3. Check-in Rápido
+
+### Modal de Check-in Rápido (`src/components/QuickCheckIn.jsx`)
+- **Título**: "O que você fez hoje?"
+- **Opções rápidas com checkbox** (8 opções):
+  - Estudei 📚
+  - Treinei 💪
+  - Trabalhei no projeto 💼
+  - Li 📖
+  - Cuidei das finanças 💰
+  - Organizei minha rotina 🗂️
+  - Descansei 😴
+  - Outro ✨
+- **Campo "Observação rápida"**: Texto curto opcional
+- **Seleção opcional de relações**:
+  - Relacionar com objetivo
+  - Relacionar com hábito
+  - Relacionar com categoria
+- **Opção "Salvar também no diário"**: Cria entrada automática no diário
+- **Fluxo rápido**: Usuário consegue registrar em menos de 15 segundos
+- **Salva no Firestore** e atualiza interface imediatamente
+
+---
+
+## 4. Relatório Semanal Automático
+
+### Card "Sua semana no MetaFlow" (na tela de Insights)
+- **Objetivos que tiveram avanço na semana**
+- **Hábitos cumpridos na semana**
+- **Quantidade de entradas no diário**
+- **Humor predominante** (com emoji)
+- **Categoria mais movimentada**
+- **Objetivos atrasados ou em risco**
+- **Status**: "Tudo em dia! 🎉" se não houver problemas
+
+### Regras
+- Considera últimos 7 dias
+- Usa checkIns, habits, journalEntries e goals
+- Estado vazio amigável se não houver dados suficientes
+- Visual em card premium, com dados fáceis de entender
+
+---
+
+## 5. Tela Evolução / Insights
+
+### Nova Página (`src/pages/InsightsPage.jsx`)
+- **Acessível pela navegação** (item "Evolução" com ícone de gráfico)
+- **Conteúdo**:
+  - **Sequência atual de hábitos** (streak)
+  - **Melhor sequência**
+  - **Dias ativos no mês**
+  - **Categoria mais movimentada**
+  - **Objetivos em risco** (lista detalhada)
+  - **Humor mais comum**
+  - **Total de check-ins no mês**
+  - **Total de diários no mês**
+  - **Relatório semanal**
+  - **Resumo do mês** (grid com 4 métricas)
+
+### Estados Vazios
+- Mensagem amigável: "Comece a registrar sua evolução"
+- Botão para fazer check-in rápido
+- Ícone ilustrativo
+
+---
+
+## 6. Níveis de Profundidade do Produto
+
+### Usuário Casual
+- Dashboard mostra ações simples (check-in rápido, hábitos, diário)
+- Não é obrigado a preencher campos complexos
+- Pode usar apenas hábitos, diário e check-in rápido
+
+### Usuário Avançado
+- Página de Objetivos com tarefas, prazos, progresso numérico e prioridades
+- Página de Hábitos com frequência customizada
+- Check-ins com relações a objetivos/hábitos/categorias
+
+### Usuário Analítico
+- Tela de Insights com todas as métricas
+- Relatório semanal detalhado
+- Resumo mensal com múltiplas dimensões
+
+---
+
+## 7. Cuidados Técnicos
+
+### Funcionalidades Preservadas
+- ✅ Login Google
+- ✅ Firestore
+- ✅ onSnapshot (real-time)
+- ✅ CRUD de objetivos
+- ✅ CRUD de hábitos
+- ✅ CRUD de diário
+- ✅ Temas
+- ✅ PWA
+- ✅ GitHub Pages
+- ✅ Service worker
+- ✅ Manifest
+- ✅ Base path /MetaFlow/
+
+### Persistência
+- Tudo salva no Firestore do usuário
+- Usa sempre `users/{userId}/...`
+- Não mistura dados entre usuários
+- Novo campo `onboardingCompleted` em settings (compatível com usuários antigos)
+
+### Build
+- ✅ Build bem-sucedido (`npm run build`)
+- ✅ Sem erros de compilação
+- ✅ Arquivos gerados corretamente
+
+---
+
+## Arquivos Criados/Modificados
+
+### Novos Arquivos
+1. `src/pages/InsightsPage.jsx` - Tela de Evolução/Insights
+2. `src/components/QuickCheckIn.jsx` - Modal de check-in rápido
+3. `src/components/OnboardingModal.jsx` - Modal de onboarding pós-login
+
+### Arquivos Modificados
+1. `src/pages/LoginPage.jsx` - Tela de login melhorada
+2. `src/pages/Dashboard.jsx` - Card "Hoje" e integração com quick check-in
+3. `src/components/Navbar.jsx` - Item "Evolução" na navegação
+4. `src/App.jsx` - Import e integração da InsightsPage e OnboardingModal
+
+---
+
+## Critérios de Aceite Atendidos
+
+- ✅ Entrar no app e entender rapidamente o que ele faz
+- ✅ Fazer login com Google
+- ✅ Ver card "Hoje" no dashboard
+- ✅ Registrar check-in rápido
+- ✅ Ver check-in salvo
+- ✅ Gerar diário a partir do check-in, se selecionado
+- ✅ Ver relatório semanal
+- ✅ Acessar tela Insights/Evolução
+- ✅ Ver dados como sequência, humor, categoria ativa e objetivos em risco
+- ✅ Atualizar a página e manter tudo salvo
+- ✅ Usar no celular sem layout quebrado
+- ✅ Não alterar a identidade visual premium
+- ✅ Não remover funcionalidades existentes

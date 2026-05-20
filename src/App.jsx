@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { AuthContext } from './providers/AuthProvider';
 import { DataContext } from './providers/DataProvider';
 import { ThemeContext } from './providers/ThemeProvider';
@@ -7,16 +7,27 @@ import Dashboard from './pages/Dashboard';
 import GoalsPage from './pages/GoalsPage';
 import HabitsPage from './pages/HabitsPage';
 import JournalPage from './pages/JournalPage';
+import InsightsPage from './pages/InsightsPage';
 import SettingsPage from './pages/SettingsPage';
 import Navbar from './components/Navbar';
 import CheckInsPage from './pages/CheckInsPage';
+import OnboardingModal from './components/OnboardingModal';
 
 
 function App() {
   const { user, loading: authLoading } = useContext(AuthContext);
-  const { loading: dataLoading, error: dataError } = useContext(DataContext);
+  const { loading: dataLoading, error: dataError, settings } = useContext(DataContext);
   const { currentTheme } = useContext(ThemeContext);
   const [currentPage, setCurrentPage] = React.useState('dashboard');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check if onboarding should be shown after login
+  useEffect(() => {
+    if (user && settings !== undefined && !dataLoading) {
+      const shouldShowOnboarding = !settings?.onboardingCompleted;
+      setShowOnboarding(shouldShowOnboarding);
+    }
+  }, [user, settings, dataLoading]);
 
   // Handle theme application on mount
   useEffect(() => {
@@ -60,6 +71,8 @@ function App() {
         return <HabitsPage />;
       case 'journal':
         return <JournalPage />;
+      case 'insights':
+        return <InsightsPage />;
       case 'check-ins':
         return <CheckInsPage />;
       case 'settings':
@@ -91,6 +104,12 @@ function App() {
       <main className="flex-1 overflow-auto pt-16">
         {renderPage()}
       </main>
+
+      {/* Onboarding Modal */}
+      <OnboardingModal
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+      />
     </div>
   );
 }

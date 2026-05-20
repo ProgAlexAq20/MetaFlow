@@ -1,7 +1,7 @@
 
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../providers/AuthProvider';
-import { Menu, X, LogOut, Settings } from 'lucide-react';
+import { Menu, X, LogOut, Settings, BarChart2 } from 'lucide-react';
 
 const Navbar = ({ currentPage, onPageChange }) => {
   const { user, signOut } = useContext(AuthContext);
@@ -12,8 +12,23 @@ const Navbar = ({ currentPage, onPageChange }) => {
     { id: 'goals', label: 'Objetivos' },
     { id: 'habits', label: 'Hábitos' },
     { id: 'journal', label: 'Diário' },
+    { id: 'insights', label: 'Evolução', icon: BarChart2 },
     { id: 'check-ins', label: 'Check-ins' },
   ];
+
+  // Listen for navigation events from other components
+  useEffect(() => {
+    const handleNavToPage = (event) => {
+      if (event.detail) {
+        onPageChange(event.detail);
+      }
+    };
+
+    window.addEventListener('nav-to-page', handleNavToPage);
+    return () => {
+      window.removeEventListener('nav-to-page', handleNavToPage);
+    };
+  }, [onPageChange]);
 
   const handlePageChange = (pageId) => {
     onPageChange(pageId);

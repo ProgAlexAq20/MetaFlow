@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../providers/AuthProvider';
 import { DataContext } from '../providers/DataProvider';
 import {
@@ -8,13 +8,32 @@ import {
   Calendar,
   CheckCircle2,
   AlertCircle,
+  Clock,
+  BookOpen,
+  ArrowRight,
+  Plus,
+  Sparkles,
 } from 'lucide-react';
-import { goalUtils } from '../utils/helpers';
+import { goalUtils, habitUtils, dateUtils } from '../utils/helpers';
 import { GOAL_STATUS_COLORS } from '../data/constants';
+import QuickCheckIn from '../components/QuickCheckIn';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
-  const { goals, habits, journalEntries, loading } = useContext(DataContext);
+  const { goals, habits, journalEntries, checkIns, loading } = useContext(DataContext);
+  const [isQuickCheckInOpen, setIsQuickCheckInOpen] = useState(false);
+
+  // Listen for custom event to open quick check-in
+  useEffect(() => {
+    const handleOpenQuickCheckIn = () => {
+      setIsQuickCheckInOpen(true);
+    };
+
+    window.addEventListener('open-quick-checkin', handleOpenQuickCheckIn);
+    return () => {
+      window.removeEventListener('open-quick-checkin', handleOpenQuickCheckIn);
+    };
+  }, []);
 
   const activeGoals = goals.filter((g) => g.status !== 'completed');
   const completedGoals = goals.filter((g) => g.status === 'completed');
@@ -37,6 +56,82 @@ const Dashboard = () => {
       entryDate.getFullYear() === today.getFullYear()
     );
   });
+
+  // Calculate "Hoje" card data
+  const todayData = (() => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Pending habits (active habits not completed today)
+    const pendingHabits = activeHabits.filter((h) => {
+      const completedToday = (h.completedDates || []).some((date) => {
+        const d = new Date(date);
+        return (
+          d.getDate() === today.getDate() &&
+          d.getMonth() === today.getMonth() &&
+          d.getFullYear() === today.getFullYear()
+        );
+      });
+      return !completedToday && habitUtils.shouldCompleteToday(h);
+    });
+
+    // Goals at risk
+    const atRiskGoals = goals.filter(
+      (g) => g.status === 'risk' || g.status === 'overdue'
+    );
+
+    // Last journal entry
+    const sortedEntries = [...journalEntries].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const lastJournal = sortedEntries[0];
+
+    // Determine suggestion
+    let suggestion = 'Você está no ritmo. Continue assim!';
+    let suggestionIcon = '✨';
+
+    if (pendingHabits.length > 0) {
+      suggestion = 'Marque um hábito concluído.';
+      suggestionIcon = '✅';
+    } else if (atRiskGoals.length > 0) {
+      suggestion = 'Registre avanço em um objetivo em risco.';
+      suggestionIcon = '⚠️';
+    } else if (!todayJournal) {
+      suggestion = 'Escreva uma breve nota no diário.';
+      suggestionIcon = '📝';
+    }
+
+    // Format last journal date
+    let lastJournalText = 'Nenhum diário registrado ainda';
+    if (lastJournal) {
+      const lastDate = new Date(lastJournal.date);
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      if (
+        lastDate.getDate() === today.getDate() &&
+        lastDate.getMonth() === today.getMonth() &&
+        lastDate.getFullYear() === today.getFullYear()
+      ) {
+        lastJournalText = 'hoje';
+      } else if (
+        lastDate.getDate() === yesterday.getDate() &&
+        lastDate.getMonth() === yesterday.getMonth() &&
+        lastDate.getFullYear() === yesterday.getFullYear()
+      ) {
+        lastJournalText = 'ontem';
+      } else {
+        lastJournalText = dateUtils.formatDate(lastJournal.date, 'dd/MM');
+      }
+    }
+
+    return {
+      pendingHabits: pendingHabits.length,
+      atRiskGoals: atRiskGoals.length,
+      lastJournal: lastJournalText,
+      suggestion,
+      suggestionIcon,
+    };
+  })();
 
   if (loading) {
     return (
@@ -67,6 +162,120 @@ const Dashboard = () => {
         <p style={{ color: 'var(--color-text-secondary)' }}>
           Aqui está o resumo do seu progresso
         </p>
+      </div>
+
+      {/* "Hoje" Card - Today Summary */}
+      <div
+        className="p-6 rounded-lg border mb-8"
+        style={{
+          backgroundColor: 'var(--color-card)',
+          borderColor: 'var(--color-border)',
+          borderLeft: `4px solid var(--color-primary)`,
+        }}
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div
+            className="p-2 rounded-lg"
+            style={{ backgroundColor: 'rgba(56, 189, 248, 0.1)' }}
+          >
+            <Clock size={24} style={{ color: 'var(--color-primary)' }} />
+          </div>
+          <h2 className="text-xl font-bold">Hoje</h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
+              >
+                <Zap size={20} style={{ color: '#F59E0B' }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{todayData.pendingHabits}</p>
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  Hábitos pendentes
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+              >
+                <AlertCircle size={20} style={{ color: '#EF4444' }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{todayData.atRiskGoals}</p>
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  Objetivos em risco
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                style={{ backgroundColor: 'rgba(236, 72, 153, 0.1)' }}
+              >
+                <BookOpen size={20} style={{ color: '#EC4899' }} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{todayData.lastJournal}</p>
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  Último diário
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
+              <span className="text-xl">{todayData.suggestionIcon}</span>
+              <p className="text-sm font-medium">{todayData.suggestion}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Action Buttons */}
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setIsQuickCheckInOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium transition hover:opacity-90"
+            style={{ backgroundColor: 'var(--color-primary)' }}
+          >
+            <Plus size={18} />
+            Check-in rápido
+          </button>
+
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'journal' }))}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-80"
+            style={{
+              backgroundColor: 'var(--color-background)',
+              color: 'var(--color-text)',
+              border: '1px solid var(--color-border)',
+            }}
+          >
+            <BookOpen size={18} />
+            Novo diário
+          </button>
+
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'habits' }))}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-80"
+            style={{
+              backgroundColor: 'var(--color-background)',
+              color: 'var(--color-text)',
+              border: '1px solid var(--color-border)',
+            }}
+          >
+            <Zap size={18} />
+            Ver hábitos
+          </button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -225,9 +434,19 @@ const Dashboard = () => {
       >
         <h2 className="text-xl font-bold mb-4">Objetivos Recentes</h2>
         {activeGoals.length === 0 ? (
-          <p style={{ color: 'var(--color-text-secondary)' }} className="text-center py-8">
-            Nenhum objetivo ativo. Crie seu primeiro objetivo para começar!
-          </p>
+          <div className="text-center py-8">
+            <Target size={48} className="mx-auto mb-4" style={{ color: 'var(--color-text-secondary)' }} />
+            <p style={{ color: 'var(--color-text-secondary)' }} className="mb-4">
+              Nenhum objetivo ativo. Crie seu primeiro objetivo para começar!
+            </p>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'goals' }))}
+              className="px-6 py-2 rounded-lg text-white font-medium transition hover:opacity-90"
+              style={{ backgroundColor: 'var(--color-primary)' }}
+            >
+              Criar Objetivo
+            </button>
+          </div>
         ) : (
           <div className="space-y-3">
             {activeGoals.slice(0, 5).map((goal) => (
@@ -259,6 +478,12 @@ const Dashboard = () => {
           </div>
         )}
       </div>
+
+      {/* Quick Check-In Modal */}
+      <QuickCheckIn
+        isOpen={isQuickCheckInOpen}
+        onClose={() => setIsQuickCheckInOpen(false)}
+      />
     </div>
   );
 };
