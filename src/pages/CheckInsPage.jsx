@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react';
-import { useData } = from '../providers/DataProvider';
+import { useData } from '../hooks/useContexts';
 import { Plus, Trash2 } from 'lucide-react';
 
 const CheckInsPage = () => {

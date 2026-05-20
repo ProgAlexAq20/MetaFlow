@@ -1,10 +1,10 @@
 
 const CACHE_NAME = 'metaflow-v1';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.ico',
+  '/MetaFlow/',
+  '/MetaFlow/index.html',
+  '/MetaFlow/manifest.json',
+  '/MetaFlow/favicon.ico',
 ];
 
 // Install event - cache resources
@@ -115,13 +115,13 @@ async function syncData() {
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {};
   const title = data.title || 'MetaFlow';
-  const options = {
-    body: data.body || 'Nova atualização',
-    icon: '/icon-192x192.png',
-    badge: '/icon-96x96.png',
-    tag: 'metaflow-notification',
-    requireInteraction: false,
-  };
+    const options = {
+      body: data.body || 'Nova atualização',
+      icon: '/MetaFlow/icon-192x192.png',
+      badge: '/MetaFlow/icon-96x96.png',
+      tag: 'metaflow-notification',
+      requireInteraction: false,
+    };
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
@@ -137,7 +137,7 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('/');
+        return clients.openWindow('/MetaFlow/');
       }
     })
   );
