@@ -510,12 +510,17 @@ export const DataProvider = ({ children }) => {
           await habitsService.updateHabit(user.uid, checkInData.habitId, habitUpdate);
         }
         if (goalUpdate && checkInData.goalId) {
-          await goalsService.updateGoal(user.uid, checkInData.goalId, {
+          const goalUpdateFields = {
             currentValue: goalUpdate.currentValue,
             status: goalUpdate.status,
             checkIns: goalUpdate.checkIns,
-            completedTasks: goalUpdate.completedTasks,
-          });
+          };
+
+          if (goalUpdate.completedTasks !== undefined) {
+            goalUpdateFields.completedTasks = goalUpdate.completedTasks;
+          }
+
+          await goalsService.updateGoal(user.uid, checkInData.goalId, goalUpdateFields);
         }
         return id;
       } catch (err) {
