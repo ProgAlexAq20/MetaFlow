@@ -109,6 +109,25 @@ function App() {
     }
   };
 
+  const quickActions = [
+    { id: 'dashboard', label: 'Início' },
+    { id: 'reminders', label: 'Lembretes' },
+    { id: 'health', label: 'Saúde' },
+    { id: 'garden', label: 'Pausa' },
+    { id: 'check-in', label: 'Check-in' },
+  ];
+
+  const handleQuickAction = (actionId) => {
+    if (actionId === 'check-in') {
+      setCurrentPage('dashboard');
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('open-quick-checkin'));
+      }, 80);
+      return;
+    }
+    setCurrentPage(actionId);
+  };
+
   return (
     <div
       className="min-h-screen w-full flex flex-col"
@@ -140,8 +159,37 @@ function App() {
       )}
 
       <main className="flex-1 overflow-auto pt-16">
-        {renderPage()}
+        <div key={currentPage} className="animate-page-enter">
+          {renderPage()}
+        </div>
       </main>
+
+      <div
+        className="fixed bottom-3 left-1/2 z-40 flex w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 gap-2 rounded-2xl border p-2 shadow-2xl backdrop-blur md:hidden"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--color-card) 92%, transparent)',
+          borderColor: 'var(--color-border)',
+        }}
+      >
+        {quickActions.map((action) => {
+          const isActive = currentPage === action.id;
+          return (
+            <button
+              key={action.id}
+              type="button"
+              onClick={() => handleQuickAction(action.id)}
+              className="flex-1 rounded-xl px-2 py-2 text-xs font-semibold transition-all duration-300"
+              style={{
+                backgroundColor: isActive ? 'var(--color-primary)' : 'transparent',
+                color: isActive ? '#fff' : 'var(--color-text-secondary)',
+                transform: isActive ? 'translateY(-2px)' : 'translateY(0)',
+              }}
+            >
+              {action.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Onboarding Modal */}
       <OnboardingModal

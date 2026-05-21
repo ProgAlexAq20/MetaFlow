@@ -34,6 +34,7 @@ export const DataProvider = ({ children }) => {
   const [toast, setToast] = useState(null);
   const unsubscribersRef = useRef([]);
   const toastTimeoutRef = useRef(null);
+  const habitRewardLocksRef = useRef(new Set());
 
   const createOptimisticId = () => {
     return typeof crypto !== 'undefined' && crypto.randomUUID
@@ -52,7 +53,7 @@ export const DataProvider = ({ children }) => {
   const getDefaultHealth = () => ({
     waterGoal: 8,
     waterIntakeToday: 0,
-    waterIntakeDate: new Date().toISOString().split('T')[0],
+    waterIntakeDate: dateUtils.getDateKey(),
     sleepTarget: 8,
     sleepHours: 0,
     mood: 'Bom',
@@ -327,6 +328,43 @@ export const DataProvider = ({ children }) => {
     [user, garden]
   );
 
+  const waterGardenToday = useCallback(
+    async () => {
+      if (!user) throw new Error('User not authenticated');
+      const todayKey = dateUtils.getDateKey();
+      const previousGarden = garden || getDefaultGarden();
+
+      if (previousGarden.lastWateredDate === todayKey) {
+        showToast('O jardim já recebeu uma gotinha hoje');
+        return;
+      }
+
+      const nextDrops = (previousGarden.drops || 0) + 1;
+      const nextGarden = {
+        ...previousGarden,
+        drops: nextDrops,
+        totalDrops: (previousGarden.totalDrops || 0) + 1,
+        stage: getGardenStage(nextDrops),
+        lastRewardAt: new Date().toISOString(),
+        lastWateredDate: todayKey,
+      };
+
+      setGarden(nextGarden);
+      showToast('Gotinha entregue ao jardim');
+
+      try {
+        await gardenService.updateGarden(user.uid, nextGarden);
+      } catch (err) {
+        setGarden(previousGarden);
+        const message = err?.message || 'Erro ao regar o jardim';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, garden, showToast]
+  );
+
   const createHabit = useCallback(
     async (habitData) => {
       if (!user) throw new Error('User not authenticated');
@@ -363,23 +401,36 @@ export const DataProvider = ({ children }) => {
       const previousHabits = habits;
       const currentHabit = habits.find((habit) => habit.id === habitId);
       const wasCompletedToday = currentHabit ? habitUtils.isCompletedToday(currentHabit) : false;
-      const nextHabit = currentHabit ? { ...currentHabit, ...habitData } : null;
+      const normalizedHabitData = habitData.completedDates
+        ? { ...habitData, completedDates: habitUtils.uniqueCompletedDates(habitData.completedDates) }
+        : habitData;
+      const nextHabit = currentHabit ? { ...currentHabit, ...normalizedHabitData } : null;
       const isCompletedToday = nextHabit ? habitUtils.isCompletedToday(nextHabit) : false;
+      const rewardKey = `${habitId}:${dateUtils.getDateKey()}`;
+      const shouldAwardGarden = !wasCompletedToday && isCompletedToday && !habitRewardLocksRef.current.has(rewardKey);
+
+      if (shouldAwardGarden) {
+        habitRewardLocksRef.current.add(rewardKey);
+      }
+
       setHabits((prev) =>
         prev.map((habit) =>
           habit.id === habitId
-            ? { ...habit, ...habitData, updatedAt: new Date().toISOString() }
+            ? { ...habit, ...normalizedHabitData, updatedAt: new Date().toISOString() }
             : habit
         )
       );
       showToast('Hábito atualizado');
 
       try {
-        await habitsService.updateHabit(user.uid, habitId, habitData);
-        if (!wasCompletedToday && isCompletedToday) {
+        await habitsService.updateHabit(user.uid, habitId, normalizedHabitData);
+        if (shouldAwardGarden) {
           await awardGardenDrops(2);
         }
       } catch (err) {
+        if (shouldAwardGarden) {
+          habitRewardLocksRef.current.delete(rewardKey);
+        }
         setHabits(previousHabits);
         const message = err?.message || 'Erro ao atualizar hábito, tente novamente';
         setError(message);
@@ -654,7 +705,7 @@ export const DataProvider = ({ children }) => {
     async (amount = 1) => {
       if (!user) throw new Error('User not authenticated');
       const previousHealth = health;
-      const todayKey = new Date().toISOString().split('T')[0];
+      const todayKey = dateUtils.getDateKey();
       const currentIntake = previousHealth?.waterIntakeDate === todayKey
         ? previousHealth?.waterIntakeToday || 0
         : 0;
@@ -778,6 +829,19 @@ export const DataProvider = ({ children }) => {
 
       const id = createOptimisticId();
       const completedAt = checkInData.date || new Date().toISOString();
+      const completedKey = dateUtils.getDateKey(completedAt);
+
+      if (checkInData.habitId) {
+        const alreadyCheckedIn = checkIns.some((checkIn) =>
+          checkIn.habitId === checkInData.habitId && dateUtils.getDateKey(checkIn.date) === completedKey
+        );
+
+        if (alreadyCheckedIn) {
+          showToast('Este hábito já foi marcado hoje', 'error');
+          return null;
+        }
+      }
+
       const optimisticCheckIn = {
         id,
         ...checkInData,
@@ -799,12 +863,11 @@ export const DataProvider = ({ children }) => {
       if (checkInData.habitId) {
         const habitToUpdate = habits.find((habit) => habit.id === checkInData.habitId);
         if (habitToUpdate) {
-          const todayKey = completedAt.split('T')[0];
           const completedDates = habitToUpdate.completedDates || [];
-          const alreadyCompleted = completedDates.some((date) => date.startsWith(todayKey));
+          const alreadyCompleted = habitUtils.hasCompletionOnDate(habitToUpdate, completedAt);
           const updatedDates = alreadyCompleted
             ? completedDates
-            : [...completedDates, completedAt];
+            : habitUtils.uniqueCompletedDates([...completedDates, completedAt]);
           if (!alreadyCompleted) {
             gardenDropsEarned += 2;
           }
@@ -1087,6 +1150,7 @@ export const DataProvider = ({ children }) => {
     deleteWeightEntry,
     garden,
     awardGardenDrops,
+    waterGardenToday,
     settings,
     updateSettings,
     loading,

@@ -263,7 +263,7 @@ const RemindersPage = () => {
   );
 
   const monthDays = useMemo(() => buildMonthDays(displayDate), [displayDate]);
-  const todayKey = new Date().toISOString().split('T')[0];
+  const todayKey = dateUtils.getDateKey();
   const waterToday = health?.waterIntakeDate === todayKey ? health?.waterIntakeToday || 0 : 0;
 
   const handleEditReminder = (reminder) => {

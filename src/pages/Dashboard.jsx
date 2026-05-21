@@ -57,7 +57,7 @@ const Dashboard = () => {
   const activeHabits = habits.filter((h) => h.status !== 'paused');
   const latestWeight = [...weightEntries].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
   const nextMedicine = (health?.medicines || [])[0] || 'Nenhum remédio';
-  const todayKey = new Date().toISOString().split('T')[0];
+  const todayKey = dateUtils.getDateKey();
   const waterToday = health?.waterIntakeDate === todayKey ? health?.waterIntakeToday || 0 : 0;
 
   const averageProgress =
@@ -93,7 +93,7 @@ const Dashboard = () => {
     });
 
     if (pendingHabit) {
-      const todayKey = today.toISOString().split('T')[0];
+      const todayKey = dateUtils.getDateKey(today);
       const completedDates = pendingHabit.completedDates || [];
       const alreadyCompleted = completedDates.some((date) => date.startsWith(todayKey));
       const updatedDates = alreadyCompleted
@@ -112,7 +112,6 @@ const Dashboard = () => {
   // Calculate "Hoje" card data
   const todayData = (() => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
 
     // Pending habits (active habits not completed today)
     const pendingHabits = activeHabits.filter((h) => {

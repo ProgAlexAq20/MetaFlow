@@ -14,8 +14,20 @@ import { GOAL_STATUS } from '../data/constants';
 // ============================================================================
 
 export const dateUtils = {
+  getDateKey(date = new Date()) {
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return date;
+    }
+
+    const parsedDate = date instanceof Date ? date : new Date(date);
+    const year = parsedDate.getFullYear();
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  },
+
   isToday(date) {
-    return isToday(new Date(date));
+    return dateUtils.getDateKey(date) === dateUtils.getDateKey();
   },
 
   isSameDay(date1, date2) {
@@ -141,9 +153,31 @@ export const goalUtils = {
 // ============================================================================
 
 export const habitUtils = {
+  hasCompletionOnDate(habit, date = new Date()) {
+    const targetKey = dateUtils.getDateKey(date);
+    return (habit.completedDates || []).some((completedDate) => {
+      const completedKey = typeof completedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(completedDate)
+        ? completedDate
+        : dateUtils.getDateKey(completedDate);
+      return completedKey === targetKey;
+    });
+  },
+
+  uniqueCompletedDates(completedDates = []) {
+    const seenKeys = new Set();
+    return completedDates.filter((completedDate) => {
+      const key = typeof completedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(completedDate)
+        ? completedDate
+        : dateUtils.getDateKey(completedDate);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+  },
+
   // Check if habit was completed today
   isCompletedToday(habit) {
-    return habit.completedDates?.some((date) => dateUtils.isToday(date)) || false;
+    return habitUtils.hasCompletionOnDate(habit);
   },
 
   // Calculate current streak

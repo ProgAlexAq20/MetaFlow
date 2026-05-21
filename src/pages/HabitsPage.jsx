@@ -1,11 +1,12 @@
 import React, { useContext, useState } from 'react';
 import { DataContext } from '../providers/DataProvider';
 import { Plus, Trash2, Check } from 'lucide-react';
-import { habitUtils } from '../utils/helpers';
+import { dateUtils, habitUtils } from '../utils/helpers';
 
 const HabitsPage = () => {
   const { habits = [], createHabit, updateHabit, deleteHabit, categories = [], loading } = useContext(DataContext);
   const [showForm, setShowForm] = useState(false);
+  const [savingHabitIds, setSavingHabitIds] = useState(new Set());
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -34,17 +35,35 @@ const HabitsPage = () => {
   };
 
   const toggleHabitToday = async (habit) => {
-    const today = new Date().toISOString().split('T')[0];
+    if (savingHabitIds.has(habit.id)) return;
+
+    setSavingHabitIds((prev) => new Set(prev).add(habit.id));
+    const today = dateUtils.getDateKey();
     const isCompletedToday = habitUtils.isCompletedToday(habit);
     
     const updatedDates = isCompletedToday
-      ? habit.completedDates?.filter((date) => !date.includes(today)) || []
-      : [...(habit.completedDates || []), today];
+      ? (habit.completedDates || []).filter((date) => {
+          const key = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+            ? date
+            : dateUtils.getDateKey(date);
+          return key !== today;
+        })
+      : habitUtils.uniqueCompletedDates([...(habit.completedDates || []), new Date().toISOString()]);
 
-    await updateHabit(habit.id, {
-      completedDates: updatedDates,
-      currentStreak: habitUtils.calculateStreak(updatedDates),
-    });
+    try {
+      const currentStreak = habitUtils.calculateStreak(updatedDates);
+      await updateHabit(habit.id, {
+        completedDates: updatedDates,
+        currentStreak,
+        bestStreak: Math.max(habit.bestStreak || 0, currentStreak),
+      });
+    } finally {
+      setSavingHabitIds((prev) => {
+        const next = new Set(prev);
+        next.delete(habit.id);
+        return next;
+      });
+    }
   };
 
   if (loading) return <div className="container mx-auto p-4">Carregando...</div>;
@@ -222,7 +241,8 @@ const HabitsPage = () => {
                 </div>
                 <button
                   onClick={() => toggleHabitToday(habit)}
-                  className="p-2 rounded-lg transition hover:opacity-80 text-white"
+                  disabled={savingHabitIds.has(habit.id)}
+                  className="p-2 rounded-lg transition hover:opacity-80 text-white disabled:cursor-not-allowed disabled:opacity-60"
                   style={{
                     backgroundColor: habitUtils.isCompletedToday(habit)
                       ? 'var(--color-primary)'

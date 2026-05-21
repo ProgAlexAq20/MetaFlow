@@ -20,7 +20,7 @@ import {
 import { DataContext } from '../providers/DataProvider';
 import { dateUtils } from '../utils/helpers';
 
-const getTodayInputValue = () => new Date().toISOString().split('T')[0];
+const getTodayInputValue = () => dateUtils.getDateKey();
 
 const calculateVariation = (entries, days) => {
   if (entries.length < 2) return 0;

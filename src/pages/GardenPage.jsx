@@ -1,6 +1,7 @@
-import React, { useContext, useMemo } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import { Droplets, Leaf, Sparkles } from 'lucide-react';
 import { DataContext } from '../providers/DataProvider';
+import { dateUtils, habitUtils } from '../utils/helpers';
 
 const STAGES = [
   { id: 'semente', label: 'Semente', min: 0, next: 12, visual: '•' },
@@ -20,16 +21,34 @@ const getStageInfo = (drops = 0) => {
 };
 
 const GardenPage = () => {
-  const { garden = {}, checkIns = [], habits = [] } = useContext(DataContext);
+  const { garden = {}, checkIns = [], habits = [], waterGardenToday } = useContext(DataContext);
+  const [isDraggingDrop, setIsDraggingDrop] = useState(false);
+  const [isDropOverGarden, setIsDropOverGarden] = useState(false);
+  const [waterPulse, setWaterPulse] = useState(false);
   const drops = garden?.drops || 0;
   const { stage, nextStage, progress } = useMemo(() => getStageInfo(drops), [drops]);
+  const todayKey = dateUtils.getDateKey();
   const completedHabitsToday = habits.filter((habit) =>
-    (habit.completedDates || []).some((date) => date.startsWith(new Date().toISOString().split('T')[0]))
+    habitUtils.hasCompletionOnDate(habit)
   ).length;
   const todayCheckIns = checkIns.filter((checkIn) =>
-    checkIn.date?.startsWith(new Date().toISOString().split('T')[0])
+    checkIn.date && dateUtils.getDateKey(checkIn.date) === todayKey
   ).length;
   const missingDrops = nextStage ? nextStage.min - drops : 0;
+  const alreadyWateredToday = garden?.lastWateredDate === todayKey;
+
+  const waterGarden = async () => {
+    await waterGardenToday();
+    setWaterPulse(true);
+    window.setTimeout(() => setWaterPulse(false), 700);
+  };
+
+  const handleDrop = async (event) => {
+    event.preventDefault();
+    setIsDraggingDrop(false);
+    setIsDropOverGarden(false);
+    await waterGarden();
+  };
 
   return (
     <div className="container mx-auto p-4 pb-20">
@@ -44,7 +63,26 @@ const GardenPage = () => {
         <div className="p-8 rounded-lg border overflow-hidden relative" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
           <div className="absolute inset-x-0 bottom-0 h-24" style={{ background: 'linear-gradient(180deg, transparent, rgba(34, 197, 94, 0.14))' }} />
           <div className="relative text-center">
-            <div className="mx-auto mb-6 flex h-56 w-full max-w-sm items-end justify-center rounded-lg border" style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}>
+            <div
+              onDragOver={(event) => {
+                event.preventDefault();
+                setIsDropOverGarden(true);
+              }}
+              onDragLeave={() => setIsDropOverGarden(false)}
+              onDrop={handleDrop}
+              className="mx-auto mb-6 flex h-56 w-full max-w-sm items-end justify-center rounded-lg border transition-all duration-300"
+              style={{
+                backgroundColor: 'var(--color-background)',
+                borderColor: isDropOverGarden ? 'var(--color-primary)' : 'var(--color-border)',
+                boxShadow: isDropOverGarden ? '0 0 0 4px color-mix(in srgb, var(--color-primary) 24%, transparent)' : 'none',
+                transform: waterPulse ? 'scale(1.02)' : 'scale(1)',
+              }}
+            >
+              {waterPulse && (
+                <div className="absolute mt-[-8rem] rounded-full px-4 py-2 text-sm font-semibold text-white animate-pulse-soft" style={{ backgroundColor: 'var(--color-primary)' }}>
+                  Gotinha recebida
+                </div>
+              )}
               <div
                 className="mb-8 text-center leading-none transition-all duration-500"
                 style={{
@@ -68,6 +106,50 @@ const GardenPage = () => {
         </div>
 
         <div className="space-y-4">
+          <div className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+            <p className="text-lg font-semibold mb-2">Regar com gotinha</p>
+            <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+              Arraste a gotinha até a semente ou toque nela para regar uma vez por dia.
+            </p>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                draggable
+                onDragStart={() => setIsDraggingDrop(true)}
+                onDragEnd={() => {
+                  setIsDraggingDrop(false);
+                  setIsDropOverGarden(false);
+                }}
+                onClick={waterGarden}
+                disabled={alreadyWateredToday}
+                className="flex h-16 w-16 items-center justify-center rounded-full border transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-55"
+                style={{
+                  color: '#fff',
+                  borderColor: isDraggingDrop ? 'var(--color-primary)' : 'var(--color-border)',
+                  background: 'linear-gradient(135deg, #38BDF8, #2563EB)',
+                  transform: isDraggingDrop ? 'scale(1.08) rotate(-6deg)' : 'scale(1)',
+                  boxShadow: '0 18px 40px rgba(37, 99, 235, 0.28)',
+                }}
+                aria-label="Arrastar gotinha para regar o jardim"
+              >
+                <span
+                  className="block h-9 w-7 rotate-45"
+                  style={{
+                    borderRadius: '70% 70% 70% 12%',
+                    background: 'linear-gradient(135deg, #E0F2FE, #38BDF8 58%, #1D4ED8)',
+                    boxShadow: 'inset -5px -6px 10px rgba(30, 64, 175, 0.32)',
+                  }}
+                />
+              </button>
+              <div>
+                <p className="font-medium">{alreadyWateredToday ? 'Gotinha de hoje entregue' : 'Solte na planta'}</p>
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  Bônus leve: +1 gota diária.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
             <div className="flex items-center justify-between">
               <div>

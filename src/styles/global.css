@@ -132,12 +132,27 @@ a {
   }
 }
 
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
 }
 
 .animate-pulse-soft {
   animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-page-enter {
+  animation: page-enter 260ms ease-out;
 }
 
 /* Loading skeleton */
