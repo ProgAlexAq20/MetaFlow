@@ -21,7 +21,16 @@ import QuickCheckIn from '../components/QuickCheckIn';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
-  const { goals, habits, journalEntries, checkIns, categories, reminders, updateHabit, loading } = useContext(DataContext);
+  const {
+    goals = [],
+    habits = [],
+    journalEntries = [],
+    checkIns = [],
+    categories = [],
+    reminders = [],
+    updateHabit,
+    loading,
+  } = useContext(DataContext);
   const [isQuickCheckInOpen, setIsQuickCheckInOpen] = useState(false);
 
   // Listen for custom event to open quick check-in
@@ -162,7 +171,7 @@ const Dashboard = () => {
       lastJournal: lastJournalText,
       suggestion,
       suggestionIcon,
-      activeReminders: reminders.filter((reminder) => reminder.active).length,
+      activeReminders: (reminders || []).filter((reminder) => reminder?.active).length,
     };
   })();
 
