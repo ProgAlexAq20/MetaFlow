@@ -22,6 +22,8 @@ const COLLECTIONS = {
   CATEGORIES: 'categories',
   JOURNAL_ENTRIES: 'journalEntries',
   CHECK_INS: 'checkIns',
+  REMINDERS: 'reminders',
+  HEALTH: 'health',
   SETTINGS: 'settings',
 };
 
@@ -455,6 +457,91 @@ export const checkInsService = {
 };
 
 // ============================================================================
+// REMINDERS OPERATIONS
+// ============================================================================
+
+export const remindersService = {
+  async getReminders(userId) {
+    const remindersRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.REMINDERS);
+    const remindersSnap = await getDocs(query(remindersRef, orderBy('createdAt', 'desc')));
+    return remindersSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+  },
+
+  async createReminder(userId, reminderData, id = null) {
+    const remindersRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.REMINDERS);
+    const reminderRef = id ? doc(remindersRef, id) : doc(remindersRef);
+    const now = serverTimestamp();
+
+    await setDoc(reminderRef, {
+      ...reminderData,
+      active: reminderData.active !== false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return reminderRef.id;
+  },
+
+  async updateReminder(userId, reminderId, reminderData) {
+    const reminderRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.REMINDERS, reminderId);
+    return updateDoc(reminderRef, {
+      ...reminderData,
+      updatedAt: serverTimestamp(),
+    });
+  },
+
+  async deleteReminder(userId, reminderId) {
+    const reminderRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.REMINDERS, reminderId);
+    return deleteDoc(reminderRef);
+  },
+
+  onRemindersChange(userId, callback) {
+    const remindersRef = collection(db, COLLECTIONS.USERS, userId, COLLECTIONS.REMINDERS);
+    return onSnapshot(query(remindersRef, orderBy('createdAt', 'desc')), (snapshot) => {
+      const reminders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(reminders);
+    });
+  },
+};
+
+// ============================================================================
+// HEALTH OPERATIONS
+// ============================================================================
+
+export const healthService = {
+  async getHealth(userId) {
+    const healthRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.HEALTH, 'metrics');
+    const healthSnap = await getDoc(healthRef);
+    return healthSnap.exists() ? healthSnap.data() : null;
+  },
+
+  async updateHealth(userId, healthData) {
+    const healthRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.HEALTH, 'metrics');
+    return setDoc(
+      healthRef,
+      {
+        ...healthData,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  },
+
+  onHealthChange(userId, callback) {
+    const healthRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.HEALTH, 'metrics');
+    return onSnapshot(healthRef, (snapshot) => {
+      callback(snapshot.exists() ? snapshot.data() : null);
+    });
+  },
+};
+
+// ============================================================================
 // SETTINGS OPERATIONS
 // ============================================================================
 
@@ -493,5 +580,7 @@ export default {
   categoriesService,
   journalService,
   checkInsService,
+  remindersService,
+  healthService,
   settingsService,
 };

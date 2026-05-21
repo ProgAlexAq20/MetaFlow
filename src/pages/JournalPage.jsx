@@ -5,7 +5,7 @@ import { dateUtils } from '../utils/helpers';
 import { MOOD_EMOJIS } from '../data/constants';
 
 const JournalPage = () => {
-  const { journalEntries, createJournalEntry, deleteJournalEntry, categories, loading } =
+  const { journalEntries = [], createJournalEntry, deleteJournalEntry, categories = [], loading } =
     useContext(DataContext);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);

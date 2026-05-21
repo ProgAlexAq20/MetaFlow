@@ -5,7 +5,7 @@ import { DataContext } from './DataProvider';
 export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  const { settings, updateSettings } = useContext(DataContext);
+  const { settings = {}, updateSettings } = useContext(DataContext);
   const [currentTheme, setCurrentTheme] = useState('azure-premium');
 
   // Load theme from settings

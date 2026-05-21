@@ -1,7 +1,7 @@
 
 import React, { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../providers/AuthProvider';
-import { Menu, X, LogOut, Settings, BarChart2 } from 'lucide-react';
+import { Menu, X, LogOut, Settings, BarChart2, Bell } from 'lucide-react';
 
 const Navbar = ({ currentPage, onPageChange }) => {
   const { user, signOut } = useContext(AuthContext);
@@ -13,6 +13,7 @@ const Navbar = ({ currentPage, onPageChange }) => {
     { id: 'habits', label: 'Hábitos' },
     { id: 'journal', label: 'Diário' },
     { id: 'insights', label: 'Evolução', icon: BarChart2 },
+    { id: 'reminders', label: 'Lembretes', icon: Bell },
     { id: 'check-ins', label: 'Check-ins' },
   ];
 

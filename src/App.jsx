@@ -8,15 +8,16 @@ import GoalsPage from './pages/GoalsPage';
 import HabitsPage from './pages/HabitsPage';
 import JournalPage from './pages/JournalPage';
 import InsightsPage from './pages/InsightsPage';
+import CheckInsPage from './pages/CheckInsPage';
+import RemindersPage from './pages/RemindersPage';
 import SettingsPage from './pages/SettingsPage';
 import Navbar from './components/Navbar';
-import CheckInsPage from './pages/CheckInsPage';
 import OnboardingModal from './components/OnboardingModal';
 
 
 function App() {
   const { user, loading: authLoading } = useContext(AuthContext);
-  const { loading: dataLoading, error: dataError, settings, toast } = useContext(DataContext);
+  const { loading: dataLoading, error: dataError, settings = {}, toast } = useContext(DataContext);
   const { currentTheme } = useContext(ThemeContext);
   const [currentPage, setCurrentPage] = React.useState('dashboard');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -75,6 +76,8 @@ function App() {
         return <InsightsPage />;
       case 'check-ins':
         return <CheckInsPage />;
+      case 'reminders':
+        return <RemindersPage />;
       case 'settings':
         return <SettingsPage />;
       default:

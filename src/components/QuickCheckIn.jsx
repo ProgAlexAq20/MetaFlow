@@ -18,11 +18,11 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
     createCheckIn,
     createJournalEntry,
     updateGoal,
-    goals,
-    habits,
-    categories,
-    checkIns,
-    journalEntries,
+    goals = [],
+    habits = [],
+    categories = [],
+    checkIns = [],
+    journalEntries = [],
   } = useContext(DataContext);
 
   const [selectedActivities, setSelectedActivities] = useState([]);

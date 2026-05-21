@@ -16,7 +16,7 @@ import { habitUtils, dateUtils } from '../utils/helpers';
 import { MOOD_EMOJIS } from '../data/constants';
 
 const InsightsPage = () => {
-  const { habits, goals, journalEntries, checkIns, categories, loading } = useContext(DataContext);
+  const { habits = [], goals = [], journalEntries = [], checkIns = [], categories = [], loading } = useContext(DataContext);
 
   // Calculate insights data
   const insightsData = useMemo(() => {

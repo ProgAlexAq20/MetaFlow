@@ -7,7 +7,7 @@ import { storageUtils } from '../utils/helpers';
 
 const SettingsPage = () => {
   const { user, signOut } = useContext(AuthContext);
-  const { settings, updateSettings, goals, habits, categories } = useContext(DataContext);
+  const { settings = {}, updateSettings, goals = [], habits = [], categories = [] } = useContext(DataContext);
   const { currentTheme, themes, changeTheme } = useContext(ThemeContext);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [supportSubject, setSupportSubject] = useState('');

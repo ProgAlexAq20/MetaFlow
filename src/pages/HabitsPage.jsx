@@ -4,7 +4,7 @@ import { Plus, Trash2, Check } from 'lucide-react';
 import { habitUtils } from '../utils/helpers';
 
 const HabitsPage = () => {
-  const { habits, createHabit, updateHabit, deleteHabit, categories, loading } = useContext(DataContext);
+  const { habits = [], createHabit, updateHabit, deleteHabit, categories = [], loading } = useContext(DataContext);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     title: '',

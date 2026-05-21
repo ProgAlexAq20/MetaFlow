@@ -6,6 +6,8 @@ import {
   categoriesService,
   journalService,
   checkInsService,
+  remindersService,
+  healthService,
   settingsService,
 } from '../services/firebase/firestoreService';
 import { DEFAULT_CATEGORIES } from '../data/defaultCategories';
@@ -21,6 +23,8 @@ export const DataProvider = ({ children }) => {
   const [categories, setCategories] = useState([]);
   const [journalEntries, setJournalEntries] = useState([]);
   const [checkIns, setCheckIns] = useState([]);
+  const [reminders, setReminders] = useState([]);
+  const [health, setHealth] = useState(null);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -57,6 +61,8 @@ export const DataProvider = ({ children }) => {
       setCategories([]);
       setJournalEntries([]);
       setCheckIns([]);
+      setReminders([]);
+      setHealth(null);
       setSettings(null);
       unsubscribersRef.current.forEach((unsub) => unsub());
       unsubscribersRef.current = [];
@@ -67,20 +73,46 @@ export const DataProvider = ({ children }) => {
       try {
         setLoading(true);
 
-        const [goalsData, habitsData, categoriesData, journalData, checkInsData, settingsData] =
-          await Promise.all([
-            goalsService.getGoals(user.uid),
-            habitsService.getHabits(user.uid),
-            categoriesService.getCategories(user.uid),
-            journalService.getJournalEntries(user.uid),
-            checkInsService.getCheckIns(user.uid),
-            settingsService.getSettings(user.uid),
-          ]);
+        const [
+          goalsData,
+          habitsData,
+          categoriesData,
+          journalData,
+          checkInsData,
+          remindersData,
+          healthData,
+          settingsData,
+        ] = await Promise.all([
+          goalsService.getGoals(user.uid),
+          habitsService.getHabits(user.uid),
+          categoriesService.getCategories(user.uid),
+          journalService.getJournalEntries(user.uid),
+          checkInsService.getCheckIns(user.uid),
+          remindersService.getReminders(user.uid),
+          healthService.getHealth(user.uid),
+          settingsService.getSettings(user.uid),
+        ]);
 
         setGoals(goalsData);
         setHabits(habitsData);
         setJournalEntries(journalData);
         setCheckIns(checkInsData);
+        setReminders(remindersData);
+
+        if (!healthData) {
+          const defaultHealth = {
+            waterGoal: 8,
+            waterIntakeToday: 0,
+            sleepTarget: 8,
+            sleepHours: 0,
+            mood: 'Bom',
+            createdAt: new Date().toISOString(),
+          };
+          await healthService.updateHealth(user.uid, defaultHealth);
+          setHealth(defaultHealth);
+        } else {
+          setHealth(healthData);
+        }
 
         if (categoriesData.length === 0) {
           const newCategories = [];
@@ -97,6 +129,7 @@ export const DataProvider = ({ children }) => {
           const defaultSettings = {
             theme: 'azure-premium',
             preferredView: 'dashboard',
+            notificationsEnabled: false,
             createdAt: new Date().toISOString(),
           };
           await settingsService.updateSettings(user.uid, defaultSettings);
@@ -112,6 +145,8 @@ export const DataProvider = ({ children }) => {
           categoriesService.onCategoriesChange(user.uid, setCategories),
           journalService.onJournalEntriesChange(user.uid, setJournalEntries),
           checkInsService.onCheckInsChange(user.uid, setCheckIns),
+          remindersService.onRemindersChange(user.uid, setReminders),
+          healthService.onHealthChange(user.uid, setHealth),
           settingsService.onSettingsChange(user.uid, setSettings),
         ];
 
@@ -427,6 +462,148 @@ export const DataProvider = ({ children }) => {
     [user, journalEntries, showToast]
   );
 
+  const createReminder = useCallback(
+    async (reminderData) => {
+      if (!user) throw new Error('User not authenticated');
+      const id = createOptimisticId();
+      const optimisticReminder = {
+        id,
+        ...reminderData,
+        active: reminderData.active !== false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setReminders((prev) => [optimisticReminder, ...prev]);
+      showToast('Lembrete criado');
+
+      try {
+        await remindersService.createReminder(user.uid, reminderData, id);
+        return id;
+      } catch (err) {
+        setReminders((prev) => prev.filter((reminder) => reminder.id !== id));
+        const message = err?.message || 'Erro ao criar lembrete, tente novamente';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, showToast]
+  );
+
+  const updateReminder = useCallback(
+    async (reminderId, reminderData) => {
+      if (!user) throw new Error('User not authenticated');
+      const previousReminders = reminders;
+      setReminders((prev) =>
+        prev.map((reminder) =>
+          reminder.id === reminderId
+            ? { ...reminder, ...reminderData, updatedAt: new Date().toISOString() }
+            : reminder
+        )
+      );
+      showToast('Lembrete atualizado');
+
+      try {
+        await remindersService.updateReminder(user.uid, reminderId, reminderData);
+      } catch (err) {
+        setReminders(previousReminders);
+        const message = err?.message || 'Erro ao atualizar lembrete, tente novamente';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, reminders, showToast]
+  );
+
+  const deleteReminder = useCallback(
+    async (reminderId) => {
+      if (!user) throw new Error('User not authenticated');
+      const previousReminders = reminders;
+      setReminders((prev) => prev.filter((reminder) => reminder.id !== reminderId));
+      showToast('Lembrete removido');
+
+      try {
+        await remindersService.deleteReminder(user.uid, reminderId);
+      } catch (err) {
+        setReminders(previousReminders);
+        const message = err?.message || 'Erro ao remover lembrete, tente novamente';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, reminders, showToast]
+  );
+
+  const updateHealth = useCallback(
+    async (healthData) => {
+      if (!user) throw new Error('User not authenticated');
+      const previousHealth = health;
+      setHealth((prev) => ({ ...prev, ...healthData }));
+      showToast('Saúde atualizada');
+
+      try {
+        await healthService.updateHealth(user.uid, healthData);
+      } catch (err) {
+        setHealth(previousHealth);
+        const message = err?.message || 'Erro ao salvar dados de saúde';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, health, showToast]
+  );
+
+  const addWaterIntake = useCallback(
+    async (amount = 1) => {
+      if (!user) throw new Error('User not authenticated');
+      const previousHealth = health;
+      const currentIntake = previousHealth?.waterIntakeToday || 0;
+      const updatedAmount = currentIntake + amount;
+      setHealth((prev) => ({ ...prev, waterIntakeToday: updatedAmount }));
+      showToast('Hidratação registrada');
+
+      try {
+        await healthService.updateHealth(user.uid, { waterIntakeToday: updatedAmount });
+      } catch (err) {
+        setHealth(previousHealth);
+        const message = err?.message || 'Erro ao registrar hidratação';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, health, showToast]
+  );
+
+  const completeReminder = useCallback(
+    async (reminder) => {
+      if (!user) throw new Error('User not authenticated');
+      try {
+        if (reminder.relatedHabitId) {
+          await createCheckIn({
+            habitId: reminder.relatedHabitId,
+            date: new Date().toISOString(),
+            title: reminder.title,
+          });
+        } else if (reminder.relatedGoalId) {
+          await createCheckIn({
+            goalId: reminder.relatedGoalId,
+            date: new Date().toISOString(),
+            title: reminder.title,
+            progressDelta: 1,
+          });
+        }
+        await updateReminder(reminder.id, { lastCompletedAt: new Date().toISOString() });
+      } catch (err) {
+        console.error('Error completing reminder:', err);
+      }
+    },
+    [user, createCheckIn, updateReminder]
+  );
+
   const createCheckIn = useCallback(
     async (checkInData) => {
       if (!user) throw new Error('User not authenticated');
@@ -689,6 +866,14 @@ export const DataProvider = ({ children }) => {
     createCheckIn,
     updateCheckIn,
     deleteCheckIn,
+    reminders,
+    createReminder,
+    updateReminder,
+    deleteReminder,
+    completeReminder,
+    health,
+    updateHealth,
+    addWaterIntake,
     settings,
     updateSettings,
     loading,

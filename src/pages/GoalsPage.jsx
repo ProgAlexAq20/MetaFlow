@@ -3,7 +3,7 @@ import { DataContext } from '../providers/DataProvider';
 import { Plus, Trash2, Edit2, X } from 'lucide-react';
 
 const GoalsPage = () => {
-  const { goals, createGoal, updateGoal, deleteGoal, categories, loading } = useContext(DataContext);
+  const { goals = [], createGoal, updateGoal, deleteGoal, categories = [], loading } = useContext(DataContext);
   const [showForm, setShowForm] = useState(false);
   const [editingGoalId, setEditingGoalId] = useState(null);
   const [formData, setFormData] = useState({
