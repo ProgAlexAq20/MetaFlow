@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'metaflow-v1';
+const CACHE_NAME = 'metaflow-v2';
 const urlsToCache = [
   '/MetaFlow/',
   '/MetaFlow/index.html',
@@ -129,15 +129,24 @@ self.addEventListener('push', (event) => {
 // Notification click handler
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const page = event.notification.data?.page || 'reminders';
+  const targetUrl = `/MetaFlow/?page=${encodeURIComponent(page)}`;
+
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
       for (const client of clientList) {
         if ('focus' in client) {
+          client.postMessage({
+            type: 'METAFLOW_NOTIFICATION_CLICK',
+            page,
+            action: event.action || 'open',
+            reminderId: event.notification.data?.reminderId || null,
+          });
           return client.focus();
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('/MetaFlow/');
+        return clients.openWindow(targetUrl);
       }
     })
   );

@@ -8,6 +8,7 @@ import {
   checkInsService,
   remindersService,
   healthService,
+  gardenService,
   settingsService,
 } from '../services/firebase/firestoreService';
 import { DEFAULT_CATEGORIES } from '../data/defaultCategories';
@@ -25,6 +26,8 @@ export const DataProvider = ({ children }) => {
   const [checkIns, setCheckIns] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [health, setHealth] = useState(null);
+  const [weightEntries, setWeightEntries] = useState([]);
+  const [garden, setGarden] = useState(null);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -37,6 +40,41 @@ export const DataProvider = ({ children }) => {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   };
+
+  const getGardenStage = (drops = 0) => {
+    if (drops >= 120) return 'jardim';
+    if (drops >= 70) return 'flor';
+    if (drops >= 35) return 'planta';
+    if (drops >= 12) return 'broto';
+    return 'semente';
+  };
+
+  const getDefaultHealth = () => ({
+    waterGoal: 8,
+    waterIntakeToday: 0,
+    waterIntakeDate: new Date().toISOString().split('T')[0],
+    sleepTarget: 8,
+    sleepHours: 0,
+    mood: 'Bom',
+    targetWeight: '',
+    weightUnit: 'kg',
+    bedtime: '22:30',
+    wakeTime: '06:30',
+    nightModeReminder: true,
+    medicines: [],
+    stretchBreakMinutes: 60,
+    eyeBreakMinutes: 20,
+    breathingMinutes: 3,
+    createdAt: new Date().toISOString(),
+  });
+
+  const getDefaultGarden = () => ({
+    drops: 0,
+    totalDrops: 0,
+    stage: 'semente',
+    lastRewardAt: null,
+    createdAt: new Date().toISOString(),
+  });
 
   const showToast = useCallback((message, type = 'success') => {
     if (toastTimeoutRef.current) {
@@ -63,6 +101,8 @@ export const DataProvider = ({ children }) => {
       setCheckIns([]);
       setReminders([]);
       setHealth(null);
+      setWeightEntries([]);
+      setGarden(null);
       setSettings(null);
       unsubscribersRef.current.forEach((unsub) => unsub());
       unsubscribersRef.current = [];
@@ -81,6 +121,8 @@ export const DataProvider = ({ children }) => {
           checkInsData,
           remindersData,
           healthData,
+          weightEntriesData,
+          gardenData,
           settingsData,
         ] = await Promise.all([
           goalsService.getGoals(user.uid),
@@ -90,6 +132,8 @@ export const DataProvider = ({ children }) => {
           checkInsService.getCheckIns(user.uid),
           remindersService.getReminders(user.uid),
           healthService.getHealth(user.uid),
+          healthService.getWeightEntries(user.uid),
+          gardenService.getGarden(user.uid),
           settingsService.getSettings(user.uid),
         ]);
 
@@ -98,20 +142,27 @@ export const DataProvider = ({ children }) => {
         setJournalEntries(journalData);
         setCheckIns(checkInsData);
         setReminders(remindersData);
+        setWeightEntries(weightEntriesData);
 
         if (!healthData) {
-          const defaultHealth = {
-            waterGoal: 8,
-            waterIntakeToday: 0,
-            sleepTarget: 8,
-            sleepHours: 0,
-            mood: 'Bom',
-            createdAt: new Date().toISOString(),
-          };
+          const defaultHealth = getDefaultHealth();
           await healthService.updateHealth(user.uid, defaultHealth);
           setHealth(defaultHealth);
         } else {
-          setHealth(healthData);
+          setHealth({ ...getDefaultHealth(), ...healthData });
+        }
+
+        if (!gardenData) {
+          const defaultGarden = getDefaultGarden();
+          await gardenService.updateGarden(user.uid, defaultGarden);
+          setGarden(defaultGarden);
+        } else {
+          const normalizedGarden = {
+            ...getDefaultGarden(),
+            ...gardenData,
+            stage: gardenData.stage || getGardenStage(gardenData.drops || 0),
+          };
+          setGarden(normalizedGarden);
         }
 
         if (categoriesData.length === 0) {
@@ -130,6 +181,7 @@ export const DataProvider = ({ children }) => {
              theme: 'azure-premium',
              preferredView: 'dashboard',
              notificationsEnabled: false,
+             notificationPermission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
              createdAt: new Date().toISOString(),
            };
            await settingsService.updateSettings(user.uid, defaultSettings);
@@ -150,7 +202,13 @@ export const DataProvider = ({ children }) => {
           journalService.onJournalEntriesChange(user.uid, setJournalEntries),
           checkInsService.onCheckInsChange(user.uid, setCheckIns),
           remindersService.onRemindersChange(user.uid, setReminders),
-          healthService.onHealthChange(user.uid, setHealth),
+          healthService.onHealthChange(user.uid, (nextHealth) => {
+            setHealth(nextHealth ? { ...getDefaultHealth(), ...nextHealth } : null);
+          }),
+          healthService.onWeightEntriesChange(user.uid, setWeightEntries),
+          gardenService.onGardenChange(user.uid, (nextGarden) => {
+            setGarden(nextGarden ? { ...getDefaultGarden(), ...nextGarden } : null);
+          }),
           settingsService.onSettingsChange(user.uid, setSettings),
         ];
 
@@ -244,6 +302,31 @@ export const DataProvider = ({ children }) => {
     [user, goals, showToast]
   );
 
+  const awardGardenDrops = useCallback(
+    async (amount) => {
+      if (!user || !amount) return;
+      const previousGarden = garden || getDefaultGarden();
+      const nextDrops = (previousGarden.drops || 0) + amount;
+      const nextGarden = {
+        ...previousGarden,
+        drops: nextDrops,
+        totalDrops: (previousGarden.totalDrops || 0) + amount,
+        stage: getGardenStage(nextDrops),
+        lastRewardAt: new Date().toISOString(),
+      };
+
+      setGarden(nextGarden);
+
+      try {
+        await gardenService.updateGarden(user.uid, nextGarden);
+      } catch (err) {
+        setGarden(previousGarden);
+        console.error('Error updating garden:', err);
+      }
+    },
+    [user, garden]
+  );
+
   const createHabit = useCallback(
     async (habitData) => {
       if (!user) throw new Error('User not authenticated');
@@ -278,6 +361,10 @@ export const DataProvider = ({ children }) => {
     async (habitId, habitData) => {
       if (!user) throw new Error('User not authenticated');
       const previousHabits = habits;
+      const currentHabit = habits.find((habit) => habit.id === habitId);
+      const wasCompletedToday = currentHabit ? habitUtils.isCompletedToday(currentHabit) : false;
+      const nextHabit = currentHabit ? { ...currentHabit, ...habitData } : null;
+      const isCompletedToday = nextHabit ? habitUtils.isCompletedToday(nextHabit) : false;
       setHabits((prev) =>
         prev.map((habit) =>
           habit.id === habitId
@@ -289,6 +376,9 @@ export const DataProvider = ({ children }) => {
 
       try {
         await habitsService.updateHabit(user.uid, habitId, habitData);
+        if (!wasCompletedToday && isCompletedToday) {
+          await awardGardenDrops(2);
+        }
       } catch (err) {
         setHabits(previousHabits);
         const message = err?.message || 'Erro ao atualizar hábito, tente novamente';
@@ -297,7 +387,7 @@ export const DataProvider = ({ children }) => {
         throw err;
       }
     },
-    [user, habits, showToast]
+    [user, habits, showToast, awardGardenDrops]
   );
 
   const deleteHabit = useCallback(
@@ -564,13 +654,19 @@ export const DataProvider = ({ children }) => {
     async (amount = 1) => {
       if (!user) throw new Error('User not authenticated');
       const previousHealth = health;
-      const currentIntake = previousHealth?.waterIntakeToday || 0;
+      const todayKey = new Date().toISOString().split('T')[0];
+      const currentIntake = previousHealth?.waterIntakeDate === todayKey
+        ? previousHealth?.waterIntakeToday || 0
+        : 0;
       const updatedAmount = currentIntake + amount;
-      setHealth((prev) => ({ ...prev, waterIntakeToday: updatedAmount }));
+      setHealth((prev) => ({ ...prev, waterIntakeToday: updatedAmount, waterIntakeDate: todayKey }));
       showToast('Hidratação registrada');
 
       try {
-        await healthService.updateHealth(user.uid, { waterIntakeToday: updatedAmount });
+        await healthService.updateHealth(user.uid, {
+          waterIntakeToday: updatedAmount,
+          waterIntakeDate: todayKey,
+        });
       } catch (err) {
         setHealth(previousHealth);
         const message = err?.message || 'Erro ao registrar hidratação';
@@ -580,6 +676,98 @@ export const DataProvider = ({ children }) => {
       }
     },
     [user, health, showToast]
+  );
+
+  const createWeightEntry = useCallback(
+    async (entryData) => {
+      if (!user) throw new Error('User not authenticated');
+      const id = createOptimisticId();
+      const now = new Date().toISOString();
+      const optimisticEntry = {
+        id,
+        ...entryData,
+        unit: entryData.unit || 'kg',
+        createdAt: now,
+        updatedAt: now,
+      };
+      const previousEntries = weightEntries;
+      const previousHealth = health;
+
+      setWeightEntries((prev) =>
+        [optimisticEntry, ...prev].sort((a, b) => new Date(b.date) - new Date(a.date))
+      );
+      setHealth((prev) => ({
+        ...prev,
+        currentWeight: Number(entryData.weight),
+        targetWeight: entryData.targetWeight ?? prev?.targetWeight ?? '',
+        weightUnit: entryData.unit || 'kg',
+      }));
+      showToast('Peso registrado');
+
+      try {
+        await healthService.createWeightEntry(user.uid, entryData, id);
+        await healthService.updateHealth(user.uid, {
+          currentWeight: Number(entryData.weight),
+          targetWeight: entryData.targetWeight ?? previousHealth?.targetWeight ?? '',
+          weightUnit: entryData.unit || 'kg',
+        });
+        return id;
+      } catch (err) {
+        setWeightEntries(previousEntries);
+        setHealth(previousHealth);
+        const message = err?.message || 'Erro ao registrar peso';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, weightEntries, health, showToast]
+  );
+
+  const updateWeightEntry = useCallback(
+    async (entryId, entryData) => {
+      if (!user) throw new Error('User not authenticated');
+      const previousEntries = weightEntries;
+      setWeightEntries((prev) =>
+        prev
+          .map((entry) =>
+            entry.id === entryId ? { ...entry, ...entryData, updatedAt: new Date().toISOString() } : entry
+          )
+          .sort((a, b) => new Date(b.date) - new Date(a.date))
+      );
+      showToast('Peso atualizado');
+
+      try {
+        await healthService.updateWeightEntry(user.uid, entryId, entryData);
+      } catch (err) {
+        setWeightEntries(previousEntries);
+        const message = err?.message || 'Erro ao atualizar peso';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, weightEntries, showToast]
+  );
+
+  const deleteWeightEntry = useCallback(
+    async (entryId) => {
+      if (!user) throw new Error('User not authenticated');
+      const previousEntries = weightEntries;
+      setWeightEntries((prev) => prev.filter((entry) => entry.id !== entryId));
+      showToast('Registro de peso removido');
+
+      try {
+        await healthService.deleteWeightEntry(user.uid, entryId);
+      } catch (err) {
+        setWeightEntries(previousEntries);
+        const message = err?.message || 'Erro ao remover registro de peso';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      }
+    },
+    [user, weightEntries, showToast]
   );
 
   // NOTE: Define createCheckIn before any hooks that reference it in their dependency arrays
@@ -606,6 +794,7 @@ export const DataProvider = ({ children }) => {
 
       let habitUpdate = null;
       let goalUpdate = null;
+      let gardenDropsEarned = 1;
 
       if (checkInData.habitId) {
         const habitToUpdate = habits.find((habit) => habit.id === checkInData.habitId);
@@ -616,6 +805,9 @@ export const DataProvider = ({ children }) => {
           const updatedDates = alreadyCompleted
             ? completedDates
             : [...completedDates, completedAt];
+          if (!alreadyCompleted) {
+            gardenDropsEarned += 2;
+          }
           const currentStreak = habitUtils.calculateStreak(updatedDates);
           const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
           habitUpdate = {
@@ -679,6 +871,7 @@ export const DataProvider = ({ children }) => {
 
           await goalsService.updateGoal(user.uid, checkInData.goalId, goalUpdateFields);
         }
+        await awardGardenDrops(gardenDropsEarned);
         return id;
       } catch (err) {
         setCheckIns(previousCheckIns);
@@ -690,7 +883,7 @@ export const DataProvider = ({ children }) => {
         throw err;
       }
     },
-    [user, checkIns, habits, goals, showToast]
+    [user, checkIns, habits, goals, showToast, awardGardenDrops]
   );
 
   const completeReminder = useCallback(
@@ -711,12 +904,16 @@ export const DataProvider = ({ children }) => {
             progressDelta: 1,
           });
         }
-        await updateReminder(reminder.id, { lastCompletedAt: new Date().toISOString() });
+        await updateReminder(reminder.id, {
+          lastCompletedAt: new Date().toISOString(),
+          snoozedUntil: null,
+        });
+        showToast('Lembrete concluído');
       } catch (err) {
         console.error('Error completing reminder:', err);
       }
     },
-    [user, createCheckIn, updateReminder]
+    [user, createCheckIn, updateReminder, showToast]
   );
 
   const updateCheckIn = useCallback(
@@ -884,6 +1081,12 @@ export const DataProvider = ({ children }) => {
     health,
     updateHealth,
     addWaterIntake,
+    weightEntries,
+    createWeightEntry,
+    updateWeightEntry,
+    deleteWeightEntry,
+    garden,
+    awardGardenDrops,
     settings,
     updateSettings,
     loading,

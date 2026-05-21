@@ -8,8 +8,10 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Clock3,
+  ClipboardCheck,
 } from 'lucide-react';
-import { dateUtils } from '../utils/helpers';
+import { dateUtils, habitUtils } from '../utils/helpers';
 
 const DAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WEEKDAY_OPTIONS = [
@@ -59,6 +61,11 @@ const getReminderLabel = (reminder) => {
 const getNextOccurrence = (reminder) => {
   if (!reminder || !reminder.active) return null;
   const now = new Date();
+  const snoozedUntil = reminder.snoozedUntil ? new Date(reminder.snoozedUntil) : null;
+
+  if (snoozedUntil && snoozedUntil >= now) {
+    return snoozedUntil;
+  }
 
   for (let offset = 0; offset < 7; offset += 1) {
     const candidate = new Date(now);
@@ -77,6 +84,30 @@ const getNextOccurrence = (reminder) => {
   }
 
   return null;
+};
+
+const getNotificationOccurrence = (reminder, now = new Date()) => {
+  if (!reminder?.active) return null;
+  const snoozedUntil = reminder.snoozedUntil ? new Date(reminder.snoozedUntil) : null;
+
+  if (snoozedUntil) {
+    const snoozeDiff = now.getTime() - snoozedUntil.getTime();
+    return snoozeDiff >= 0 && snoozeDiff <= 60000 ? snoozedUntil : null;
+  }
+
+  if (!isScheduledForDate(reminder, now)) return null;
+
+  const [hour, minute] = (reminder.time || '08:00').split(':').map(Number);
+  const scheduled = new Date(now);
+  scheduled.setHours(hour, minute, 0, 0);
+
+  const notifyBeforeMs = (Number(reminder.notifyBeforeMinutes) || 0) * 60000;
+  const notifyAt = new Date(scheduled.getTime() - notifyBeforeMs);
+  const startsAt = notifyAt.getTime();
+  const expiresAt = scheduled.getTime() + 60000;
+  const nowTime = now.getTime();
+
+  return nowTime >= startsAt && nowTime <= expiresAt ? scheduled : null;
 };
 
 const buildMonthDays = (displayDate) => {
@@ -111,6 +142,8 @@ const RemindersPage = () => {
     updateReminder,
     deleteReminder,
     completeReminder,
+    createCheckIn,
+    updateHabit,
     health = {},
     updateHealth,
     addWaterIntake,
@@ -138,6 +171,7 @@ const RemindersPage = () => {
   const [sleepHours, setSleepHours] = useState(health?.sleepHours || 0);
   const [mood, setMood] = useState(health?.mood || 'Bom');
   const [notifiedKeys, setNotifiedKeys] = useState({});
+  const [fallbackReminder, setFallbackReminder] = useState(null);
 
   useEffect(() => {
     if (health) {
@@ -148,43 +182,60 @@ const RemindersPage = () => {
   }, [health]);
 
   useEffect(() => {
-    const intervalId = setInterval(async () => {
-      if (!settings?.notificationsEnabled || typeof Notification === 'undefined') {
-        return;
-      }
-
-      if (Notification.permission !== 'granted') {
-        return;
-      }
-
+    const icon = `${import.meta.env.BASE_URL}icon-192x192.png`;
+    const badge = `${import.meta.env.BASE_URL}icon-96x96.png`;
+    const notify = async () => {
       const now = new Date();
       reminders
         .filter((reminder) => reminder.active)
         .forEach(async (reminder) => {
-          const next = getNextOccurrence(reminder);
-          if (!next) return;
+          const occurrence = getNotificationOccurrence(reminder, now);
+          if (!occurrence) return;
 
-          const diffMinutes = (next.getTime() - now.getTime()) / 60000;
-          const shouldNotify = diffMinutes <= (reminder.notifyBeforeMinutes || 0) && diffMinutes >= 0;
-          const notificationId = `${reminder.id}-${next.toISOString()}`;
+          const notificationId = `${reminder.id}-${occurrence.toISOString()}`;
+          if (notifiedKeys[notificationId]) return;
 
-          if (shouldNotify && !notifiedKeys[notificationId]) {
-            const title = `Lembrete: ${reminder.title}`;
-            const body = reminder.description || `${getReminderLabel(reminder)} às ${reminder.time}`;
-            if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
-              const registration = await navigator.serviceWorker.getRegistration();
-              registration?.showNotification(title, {
-                body,
-                icon: '/icon-192x192.png',
-                badge: '/icon-96x96.png',
-              });
+          const body = reminder.description || reminder.title || `${getReminderLabel(reminder)} às ${reminder.time}`;
+          const canUseNotification =
+            settings?.notificationsEnabled &&
+            typeof Notification !== 'undefined' &&
+            Notification.permission === 'granted';
+
+          try {
+            if (canUseNotification) {
+              if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
+                const registration = await navigator.serviceWorker.getRegistration();
+                if (registration) {
+                  await registration.showNotification('MetaFlow', {
+                    body,
+                    icon,
+                    badge,
+                    tag: notificationId,
+                    renotify: false,
+                    data: { page: 'reminders', reminderId: reminder.id },
+                    actions: [
+                      { action: 'open', title: 'Abrir' },
+                    ],
+                  });
+                } else {
+                  new Notification('MetaFlow', { body, icon, tag: notificationId });
+                }
+              } else {
+                new Notification('MetaFlow', { body, icon, tag: notificationId });
+              }
             } else {
-              new Notification(title, { body, icon: '/icon-192x192.png' });
+              setFallbackReminder(reminder);
             }
-            setNotifiedKeys((prev) => ({ ...prev, [notificationId]: true }));
+          } catch (error) {
+            console.error('Erro ao disparar notificação:', error);
+            setFallbackReminder(reminder);
           }
+          setNotifiedKeys((prev) => ({ ...prev, [notificationId]: true }));
         });
-    }, 30000);
+    };
+
+    notify();
+    const intervalId = setInterval(notify, 30000);
 
     return () => clearInterval(intervalId);
   }, [reminders, settings, notifiedKeys]);
@@ -207,11 +258,13 @@ const RemindersPage = () => {
   }, [visibleReminders]);
 
   const selectedDayReminders = useMemo(
-    () => reminders.filter((reminder) => isScheduledForDate(reminder, selectedDate)),
+    () => reminders.filter((reminder) => isScheduledForDate({ ...reminder, active: true }, selectedDate)),
     [reminders, selectedDate]
   );
 
   const monthDays = useMemo(() => buildMonthDays(displayDate), [displayDate]);
+  const todayKey = new Date().toISOString().split('T')[0];
+  const waterToday = health?.waterIntakeDate === todayKey ? health?.waterIntakeToday || 0 : 0;
 
   const handleEditReminder = (reminder) => {
     setEditingReminder(reminder);
@@ -261,18 +314,68 @@ const RemindersPage = () => {
 
   const handleNotificationToggle = async () => {
     if (typeof Notification === 'undefined') {
+      await updateSettings({ notificationsEnabled: false, notificationPermission: 'unsupported' });
       showToast('Notificações não suportadas neste dispositivo', 'error');
       return;
     }
 
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-      await updateSettings({ notificationsEnabled: true });
+      await updateSettings({ notificationsEnabled: true, notificationPermission: permission });
       showToast('Notificações ativadas');
     } else {
-      await updateSettings({ notificationsEnabled: false });
+      await updateSettings({ notificationsEnabled: false, notificationPermission: permission });
       showToast('Permissão de notificações não concedida', 'error');
     }
+  };
+
+  const handleCompleteReminder = async (reminder) => {
+    await completeReminder(reminder);
+    setFallbackReminder(null);
+  };
+
+  const handleSnoozeReminder = async (reminder) => {
+    const snoozedUntil = new Date(Date.now() + 15 * 60000).toISOString();
+    await updateReminder(reminder.id, { snoozedUntil });
+    setFallbackReminder(null);
+    showToast('Lembrete adiado por 15 minutos');
+  };
+
+  const handleRegisterReminderCheckIn = async (reminder) => {
+    await createCheckIn({
+      habitId: reminder.relatedHabitId || null,
+      goalId: reminder.relatedGoalId || null,
+      title: reminder.title,
+      date: new Date().toISOString(),
+      progressDelta: reminder.relatedGoalId ? 1 : 0,
+    });
+    await updateReminder(reminder.id, { lastCompletedAt: new Date().toISOString(), snoozedUntil: null });
+    setFallbackReminder(null);
+  };
+
+  const handleLinkedHabitUpdate = async (reminder) => {
+    if (!reminder.relatedHabitId) {
+      showToast('Este lembrete não tem hábito vinculado', 'error');
+      return;
+    }
+    const habit = habits.find((item) => item.id === reminder.relatedHabitId);
+    if (!habit) {
+      showToast('Hábito vinculado não encontrado', 'error');
+      return;
+    }
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const completedDates = habit.completedDates || [];
+    const updatedDates = completedDates.some((date) => date.startsWith(today))
+      ? completedDates
+      : [...completedDates, now];
+    await updateHabit(habit.id, {
+      completedDates: updatedDates,
+      currentStreak: habitUtils.calculateStreak(updatedDates),
+      bestStreak: Math.max(habit.bestStreak || 0, habitUtils.calculateStreak(updatedDates)),
+    });
+    await updateReminder(reminder.id, { lastCompletedAt: now, snoozedUntil: null });
+    setFallbackReminder(null);
   };
 
   const handleSaveHealth = async () => {
@@ -324,6 +427,34 @@ const RemindersPage = () => {
         </div>
       </div>
 
+      {fallbackReminder && (
+        <div className="mb-6 rounded-lg border p-4" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-primary)' }}>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.16em]" style={{ color: 'var(--color-text-secondary)' }}>Lembrete agora</p>
+              <p className="text-xl font-semibold">{fallbackReminder.title}</p>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                {fallbackReminder.description || `${getReminderLabel(fallbackReminder)} às ${fallbackReminder.time}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => handleCompleteReminder(fallbackReminder)} className="px-3 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-primary)' }}>
+                <CheckCircle2 size={16} className="inline mr-1" /> Concluir
+              </button>
+              <button type="button" onClick={() => handleSnoozeReminder(fallbackReminder)} className="px-3 py-2 rounded-lg border font-medium" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+                <Clock3 size={16} className="inline mr-1" /> Adiar 15 min
+              </button>
+              <button type="button" onClick={() => handleRegisterReminderCheckIn(fallbackReminder)} className="px-3 py-2 rounded-lg border font-medium" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+                <ClipboardCheck size={16} className="inline mr-1" /> Check-in
+              </button>
+              <button type="button" onClick={() => handleLinkedHabitUpdate(fallbackReminder)} className="px-3 py-2 rounded-lg border font-medium" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+                Atualizar hábito
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1.3fr_0.9fr]">
         <div className="space-y-6">
           <div
@@ -373,7 +504,7 @@ const RemindersPage = () => {
               </div>
               <div className="text-right">
                 <p className="text-xs uppercase tracking-[0.1em] text-slate-500">Meta de água</p>
-                <p className="text-xl font-semibold">{health?.waterIntakeToday || 0}/{health?.waterGoal || 8} copos</p>
+                <p className="text-xl font-semibold">{waterToday}/{health?.waterGoal || 8} copos</p>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-3 mb-4">
@@ -642,7 +773,7 @@ const RemindersPage = () => {
             <div className="grid grid-cols-7 gap-2">
               {monthDays.map((date, index) => {
                 const isToday = date && dateUtils.isSameDay(date, new Date());
-                const hasReminder = date && reminders.some((reminder) => isScheduledForDate(reminder, date));
+                const hasReminder = date && reminders.some((reminder) => isScheduledForDate({ ...reminder, active: true }, date));
                 const isSelected = date && selectedDate && dateUtils.isSameDay(date, selectedDate);
 
                 return (
@@ -677,7 +808,11 @@ const RemindersPage = () => {
                     <div
                       key={reminder.id}
                       className="rounded-xl border p-4"
-                      style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}
+                      style={{
+                        borderColor: 'var(--color-border)',
+                        backgroundColor: 'var(--color-background)',
+                        opacity: reminder.active === false ? 0.72 : 1,
+                      }}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div>
@@ -685,11 +820,25 @@ const RemindersPage = () => {
                           <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                             {reminder.description || getReminderLabel(reminder)} · {reminder.time}
                           </p>
+                          {reminder.active === false && (
+                            <span className="mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium" style={{ backgroundColor: 'var(--color-border)', color: 'var(--color-text)' }}>
+                              Pausado
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => completeReminder(reminder)}
+                            onClick={() => updateReminder(reminder.id, { active: reminder.active === false })}
+                            className="px-3 py-2 rounded-lg border text-sm font-medium"
+                            style={{ borderColor: 'var(--color-border)' }}
+                            title={reminder.active === false ? 'Ativar lembrete' : 'Pausar lembrete'}
+                          >
+                            {reminder.active === false ? 'Ativar' : 'Pausar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteReminder(reminder)}
                             className="p-2 rounded-lg text-white"
                             style={{ backgroundColor: 'var(--color-primary)' }}
                             title="Concluir lembrete"
@@ -744,7 +893,7 @@ const RemindersPage = () => {
                         </div>
                         <button
                           type="button"
-                          onClick={() => completeReminder(reminder)}
+                          onClick={() => handleCompleteReminder(reminder)}
                           className="rounded-lg px-3 py-2 text-sm font-medium text-white"
                           style={{ backgroundColor: 'var(--color-primary)' }}
                         >

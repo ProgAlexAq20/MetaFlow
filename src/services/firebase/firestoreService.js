@@ -24,6 +24,8 @@ const COLLECTIONS = {
   CHECK_INS: 'checkIns',
   REMINDERS: 'reminders',
   HEALTH: 'health',
+  WEIGHT_ENTRIES: 'weightEntries',
+  GARDEN: 'garden',
   SETTINGS: 'settings',
 };
 
@@ -521,6 +523,22 @@ export const healthService = {
     return healthSnap.exists() ? healthSnap.data() : null;
   },
 
+  async getWeightEntries(userId) {
+    const entriesRef = collection(
+      db,
+      COLLECTIONS.USERS,
+      userId,
+      COLLECTIONS.HEALTH,
+      'metrics',
+      COLLECTIONS.WEIGHT_ENTRIES
+    );
+    const entriesSnap = await getDocs(query(entriesRef, orderBy('date', 'desc')));
+    return entriesSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+  },
+
   async updateHealth(userId, healthData) {
     const healthRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.HEALTH, 'metrics');
     return setDoc(
@@ -533,9 +551,109 @@ export const healthService = {
     );
   },
 
+  async createWeightEntry(userId, entryData, id = null) {
+    const entriesRef = collection(
+      db,
+      COLLECTIONS.USERS,
+      userId,
+      COLLECTIONS.HEALTH,
+      'metrics',
+      COLLECTIONS.WEIGHT_ENTRIES
+    );
+    const entryRef = id ? doc(entriesRef, id) : doc(entriesRef);
+    const now = serverTimestamp();
+
+    await setDoc(entryRef, {
+      ...entryData,
+      unit: entryData.unit || 'kg',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return entryRef.id;
+  },
+
+  async updateWeightEntry(userId, entryId, entryData) {
+    const entryRef = doc(
+      db,
+      COLLECTIONS.USERS,
+      userId,
+      COLLECTIONS.HEALTH,
+      'metrics',
+      COLLECTIONS.WEIGHT_ENTRIES,
+      entryId
+    );
+    return updateDoc(entryRef, {
+      ...entryData,
+      updatedAt: serverTimestamp(),
+    });
+  },
+
+  async deleteWeightEntry(userId, entryId) {
+    const entryRef = doc(
+      db,
+      COLLECTIONS.USERS,
+      userId,
+      COLLECTIONS.HEALTH,
+      'metrics',
+      COLLECTIONS.WEIGHT_ENTRIES,
+      entryId
+    );
+    return deleteDoc(entryRef);
+  },
+
   onHealthChange(userId, callback) {
     const healthRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.HEALTH, 'metrics');
     return onSnapshot(healthRef, (snapshot) => {
+      callback(snapshot.exists() ? snapshot.data() : null);
+    });
+  },
+
+  onWeightEntriesChange(userId, callback) {
+    const entriesRef = collection(
+      db,
+      COLLECTIONS.USERS,
+      userId,
+      COLLECTIONS.HEALTH,
+      'metrics',
+      COLLECTIONS.WEIGHT_ENTRIES
+    );
+    return onSnapshot(query(entriesRef, orderBy('date', 'desc')), (snapshot) => {
+      const entries = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      callback(entries);
+    });
+  },
+};
+
+// ============================================================================
+// GARDEN OPERATIONS
+// ============================================================================
+
+export const gardenService = {
+  async getGarden(userId) {
+    const gardenRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.GARDEN, 'progress');
+    const gardenSnap = await getDoc(gardenRef);
+    return gardenSnap.exists() ? gardenSnap.data() : null;
+  },
+
+  async updateGarden(userId, gardenData) {
+    const gardenRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.GARDEN, 'progress');
+    return setDoc(
+      gardenRef,
+      {
+        ...gardenData,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  },
+
+  onGardenChange(userId, callback) {
+    const gardenRef = doc(db, COLLECTIONS.USERS, userId, COLLECTIONS.GARDEN, 'progress');
+    return onSnapshot(gardenRef, (snapshot) => {
       callback(snapshot.exists() ? snapshot.data() : null);
     });
   },
@@ -582,5 +700,6 @@ export default {
   checkInsService,
   remindersService,
   healthService,
+  gardenService,
   settingsService,
 };

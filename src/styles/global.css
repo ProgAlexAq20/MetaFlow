@@ -66,10 +66,45 @@ select {
 }
 
 input[type='date']::-webkit-calendar-picker-indicator,
+input[type='time']::-webkit-calendar-picker-indicator,
 input[type='date']::-webkit-outer-spin-button,
 input[type='date']::-webkit-inner-spin-button {
   filter: invert(1);
   opacity: 0.8;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.72;
+}
+
+select option {
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+[data-theme='azure-premium'] .text-slate-500,
+[data-theme='purple-night'] .text-slate-500,
+[data-theme='green-evolution'] .text-slate-500,
+[data-theme='amber-focus'] .text-slate-500,
+[data-theme='red-energy'] .text-slate-500,
+[data-theme='minimal-dark'] .text-slate-500,
+[data-theme='dark-rose'] .text-slate-500,
+[data-theme='midnight-purple'] .text-slate-500,
+[data-theme='dark-premium'] .text-slate-500,
+[data-theme='deep-focus'] .text-slate-500,
+[data-theme='azure-premium'] .text-slate-400,
+[data-theme='purple-night'] .text-slate-400,
+[data-theme='green-evolution'] .text-slate-400,
+[data-theme='amber-focus'] .text-slate-400,
+[data-theme='red-energy'] .text-slate-400,
+[data-theme='minimal-dark'] .text-slate-400,
+[data-theme='dark-rose'] .text-slate-400,
+[data-theme='midnight-purple'] .text-slate-400,
+[data-theme='dark-premium'] .text-slate-400,
+[data-theme='deep-focus'] .text-slate-400 {
+  color: var(--color-text-secondary) !important;
 }
 
 /* Transitions */

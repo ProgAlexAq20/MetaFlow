@@ -10,6 +10,8 @@ import JournalPage from './pages/JournalPage';
 import InsightsPage from './pages/InsightsPage';
 import CheckInsPage from './pages/CheckInsPage';
 import RemindersPage from './pages/RemindersPage';
+import HealthPage from './pages/HealthPage';
+import GardenPage from './pages/GardenPage';
 import SettingsPage from './pages/SettingsPage';
 import Navbar from './components/Navbar';
 import OnboardingModal from './components/OnboardingModal';
@@ -21,6 +23,24 @@ function App() {
   const { currentTheme } = useContext(ThemeContext);
   const [currentPage, setCurrentPage] = React.useState('dashboard');
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    const pageFromUrl = new URLSearchParams(window.location.search).get('page');
+    if (pageFromUrl) {
+      setCurrentPage(pageFromUrl);
+    }
+
+    if (!('serviceWorker' in navigator)) return undefined;
+
+    const handleMessage = (event) => {
+      if (event.data?.type === 'METAFLOW_NOTIFICATION_CLICK' && event.data.page) {
+        setCurrentPage(event.data.page);
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
+  }, []);
 
   // Check if onboarding should be shown after login
   useEffect(() => {
@@ -78,6 +98,10 @@ function App() {
         return <CheckInsPage />;
       case 'reminders':
         return <RemindersPage />;
+      case 'health':
+        return <HealthPage />;
+      case 'garden':
+        return <GardenPage />;
       case 'settings':
         return <SettingsPage />;
       default:

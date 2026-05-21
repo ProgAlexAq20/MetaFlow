@@ -14,6 +14,10 @@ import {
   Plus,
   Sparkles,
   Bell,
+  HeartPulse,
+  Droplets,
+  Moon,
+  Leaf,
 } from 'lucide-react';
 import { goalUtils, habitUtils, dateUtils } from '../utils/helpers';
 import { GOAL_STATUS_COLORS } from '../data/constants';
@@ -28,6 +32,9 @@ const Dashboard = () => {
     checkIns = [],
     categories = [],
     reminders = [],
+    health = {},
+    weightEntries = [],
+    garden = {},
     updateHabit,
     loading,
   } = useContext(DataContext);
@@ -48,6 +55,10 @@ const Dashboard = () => {
   const activeGoals = goals.filter((g) => g.status !== 'completed');
   const completedGoals = goals.filter((g) => g.status === 'completed');
   const activeHabits = habits.filter((h) => h.status !== 'paused');
+  const latestWeight = [...weightEntries].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  const nextMedicine = (health?.medicines || [])[0] || 'Nenhum remédio';
+  const todayKey = new Date().toISOString().split('T')[0];
+  const waterToday = health?.waterIntakeDate === todayKey ? health?.waterIntakeToday || 0 : 0;
 
   const averageProgress =
     goals.length > 0
@@ -270,6 +281,54 @@ const Dashboard = () => {
             Registre seu próximo pensamento ainda hoje
           </p>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+        <div className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Peso atual</p>
+              <p className="text-2xl font-semibold">{latestWeight ? `${latestWeight.weight} kg` : 'Sem registro'}</p>
+            </div>
+            <HeartPulse size={24} style={{ color: 'var(--color-primary)' }} />
+          </div>
+        </div>
+
+        <div className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Água do dia</p>
+              <p className="text-2xl font-semibold">{waterToday}/{health?.waterGoal || 8}</p>
+            </div>
+            <Droplets size={24} style={{ color: '#38BDF8' }} />
+          </div>
+        </div>
+
+        <div className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Saúde</p>
+              <p className="text-lg font-semibold truncate">{nextMedicine}</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Dormir {health?.bedtime || '22:30'}</p>
+            </div>
+            <Moon size={24} style={{ color: 'var(--color-secondary)' }} />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('nav-to-page', { detail: 'garden' }))}
+          className="p-5 rounded-lg border text-left transition hover:opacity-90"
+          style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Jardim MetaFlow</p>
+              <p className="text-2xl font-semibold">{garden?.drops || 0} gotas</p>
+            </div>
+            <Leaf size={24} style={{ color: '#22C55E' }} />
+          </div>
+        </button>
       </div>
 
       {/* "Hoje" Card - Today Summary */}
