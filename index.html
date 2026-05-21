@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="MetaFlow - Acompanhe seus objetivos, hábitos e evolução na nuvem" />
+    <meta name="theme-color" content="#0F172A" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MetaFlow" />
+    <link rel="apple-touch-icon" href="/MetaFlow/icon-192x192.png" />
+    <link rel="manifest" href="/MetaFlow/manifest.json" />
+    <link rel="icon" type="image/x-icon" href="/MetaFlow/favicon.ico" />
+    <title>MetaFlow - Acompanhamento de Objetivos</title>
+    <script type="module" crossorigin src="/MetaFlow/assets/index-Cj2Q4AM4.js"></script>
+    <link rel="stylesheet" crossorigin href="/MetaFlow/assets/index-BfJsuIhV.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Register service worker for PWA support
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/MetaFlow/sw.js', {
+            scope: '/MetaFlow/',
+          }).catch((error) => {
+            console.log('Service worker registration failed:', error);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
