@@ -9,11 +9,11 @@ import './styles/global.css';
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AuthProvider>
-      <DataProvider>
-        <ThemeProvider>
+      <ThemeProvider>
+        <DataProvider>
           <App />
-        </ThemeProvider>
-      </DataProvider>
+        </DataProvider>
+      </ThemeProvider>
     </AuthProvider>
   </React.StrictMode>
 );

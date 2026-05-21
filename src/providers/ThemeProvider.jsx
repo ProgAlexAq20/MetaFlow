@@ -1,22 +1,17 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
 import { THEMES } from '../data/constants';
-import { DataContext } from './DataProvider';
 
 export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  const { settings = {}, updateSettings } = useContext(DataContext);
   const [currentTheme, setCurrentTheme] = useState('azure-premium');
 
-  // Load theme from settings
+  // Load theme from localStorage on mount
   useEffect(() => {
-    if (settings?.theme) {
-      setCurrentTheme(settings.theme);
-      applyTheme(settings.theme);
-    } else {
-      applyTheme('azure-premium');
-    }
-  }, [settings]);
+    const savedTheme = localStorage.getItem('metaflow_theme') || 'azure-premium';
+    setCurrentTheme(savedTheme);
+    applyTheme(savedTheme);
+  }, []);
 
   const applyTheme = (themeName) => {
     const theme = THEMES[themeName];
@@ -41,14 +36,8 @@ export const ThemeProvider = ({ children }) => {
     setCurrentTheme(themeName);
     applyTheme(themeName);
     
-    // Save to settings
-    if (updateSettings) {
-      try {
-        await updateSettings({ theme: themeName });
-      } catch (error) {
-        console.error('Error saving theme:', error);
-      }
-    }
+    // Save to localStorage
+    localStorage.setItem('metaflow_theme', themeName);
   };
 
   const value = {

@@ -125,18 +125,22 @@ export const DataProvider = ({ children }) => {
           setCategories(categoriesData);
         }
 
-        if (!settingsData) {
-          const defaultSettings = {
-            theme: 'azure-premium',
-            preferredView: 'dashboard',
-            notificationsEnabled: false,
-            createdAt: new Date().toISOString(),
-          };
-          await settingsService.updateSettings(user.uid, defaultSettings);
-          setSettings(defaultSettings);
-        } else {
-          setSettings(settingsData);
-        }
+         if (!settingsData) {
+           const defaultSettings = {
+             theme: 'azure-premium',
+             preferredView: 'dashboard',
+             notificationsEnabled: false,
+             createdAt: new Date().toISOString(),
+           };
+           await settingsService.updateSettings(user.uid, defaultSettings);
+           setSettings(defaultSettings);
+           localStorage.setItem('metaflow_theme', defaultSettings.theme);
+         } else {
+           setSettings(settingsData);
+           if (settingsData.theme) {
+             localStorage.setItem('metaflow_theme', settingsData.theme);
+           }
+         }
 
         unsubscribersRef.current.forEach((unsub) => unsub());
         unsubscribersRef.current = [
@@ -578,32 +582,8 @@ export const DataProvider = ({ children }) => {
     [user, health, showToast]
   );
 
-  const completeReminder = useCallback(
-    async (reminder) => {
-      if (!user) throw new Error('User not authenticated');
-      try {
-        if (reminder.relatedHabitId) {
-          await createCheckIn({
-            habitId: reminder.relatedHabitId,
-            date: new Date().toISOString(),
-            title: reminder.title,
-          });
-        } else if (reminder.relatedGoalId) {
-          await createCheckIn({
-            goalId: reminder.relatedGoalId,
-            date: new Date().toISOString(),
-            title: reminder.title,
-            progressDelta: 1,
-          });
-        }
-        await updateReminder(reminder.id, { lastCompletedAt: new Date().toISOString() });
-      } catch (err) {
-        console.error('Error completing reminder:', err);
-      }
-    },
-    [user, createCheckIn, updateReminder]
-  );
-
+  // NOTE: Define createCheckIn before any hooks that reference it in their dependency arrays
+  // to avoid temporal dead zone errors in production builds.
   const createCheckIn = useCallback(
     async (checkInData) => {
       if (!user) throw new Error('User not authenticated');
@@ -711,6 +691,32 @@ export const DataProvider = ({ children }) => {
       }
     },
     [user, checkIns, habits, goals, showToast]
+  );
+
+  const completeReminder = useCallback(
+    async (reminder) => {
+      if (!user) throw new Error('User not authenticated');
+      try {
+        if (reminder.relatedHabitId) {
+          await createCheckIn({
+            habitId: reminder.relatedHabitId,
+            date: new Date().toISOString(),
+            title: reminder.title,
+          });
+        } else if (reminder.relatedGoalId) {
+          await createCheckIn({
+            goalId: reminder.relatedGoalId,
+            date: new Date().toISOString(),
+            title: reminder.title,
+            progressDelta: 1,
+          });
+        }
+        await updateReminder(reminder.id, { lastCompletedAt: new Date().toISOString() });
+      } catch (err) {
+        console.error('Error completing reminder:', err);
+      }
+    },
+    [user, createCheckIn, updateReminder]
   );
 
   const updateCheckIn = useCallback(
@@ -835,6 +841,10 @@ export const DataProvider = ({ children }) => {
       try {
         await settingsService.updateSettings(user.uid, settingsData);
         setSettings((prev) => ({ ...prev, ...settingsData }));
+        // Sync theme to localStorage if it's being updated
+        if (settingsData.theme) {
+          localStorage.setItem('metaflow_theme', settingsData.theme);
+        }
       } catch (err) {
         const message = err?.message || 'Erro ao salvar configurações';
         setError(message);
