@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Plus,
   Sparkles,
+  Bell,
 } from 'lucide-react';
 import { goalUtils, habitUtils, dateUtils } from '../utils/helpers';
 import { GOAL_STATUS_COLORS } from '../data/constants';
@@ -20,7 +21,7 @@ import QuickCheckIn from '../components/QuickCheckIn';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
-  const { goals, habits, journalEntries, checkIns, categories, updateHabit, loading } = useContext(DataContext);
+  const { goals, habits, journalEntries, checkIns, categories, reminders, updateHabit, loading } = useContext(DataContext);
   const [isQuickCheckInOpen, setIsQuickCheckInOpen] = useState(false);
 
   // Listen for custom event to open quick check-in
@@ -161,6 +162,7 @@ const Dashboard = () => {
       lastJournal: lastJournalText,
       suggestion,
       suggestionIcon,
+      activeReminders: reminders.filter((reminder) => reminder.active).length,
     };
   })();
 
@@ -193,6 +195,72 @@ const Dashboard = () => {
         <p style={{ color: 'var(--color-text-secondary)' }}>
           Aqui está o resumo do seu progresso
         </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+        <div
+          className="p-5 rounded-lg border"
+          style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm text-slate-500">Objetivos</p>
+              <p className="text-2xl font-semibold">{goals.length}</p>
+            </div>
+            <Target size={24} style={{ color: 'var(--color-primary)' }} />
+          </div>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            {completedGoals.length} concluído(s)
+          </p>
+        </div>
+
+        <div
+          className="p-5 rounded-lg border"
+          style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm text-slate-500">Hábitos ativos</p>
+              <p className="text-2xl font-semibold">{activeHabits.length}</p>
+            </div>
+            <Zap size={24} style={{ color: 'var(--color-secondary)' }} />
+          </div>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            {habits.filter((h) => h.status === 'paused').length} pausado(s)
+          </p>
+        </div>
+
+        <div
+          className="p-5 rounded-lg border"
+          style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm text-slate-500">Lembretes ativos</p>
+              <p className="text-2xl font-semibold">{reminders.filter((reminder) => reminder.active).length}</p>
+            </div>
+            <Bell size={24} style={{ color: '#EC4899' }} />
+          </div>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            Fique atento às próximas ações
+          </p>
+        </div>
+
+        <div
+          className="p-5 rounded-lg border"
+          style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm text-slate-500">Diário hoje</p>
+              <p className="text-2xl font-semibold">{todayJournal ? 'Sim' : 'Não'}</p>
+            </div>
+            <Sparkles size={24} style={{ color: '#F59E0B' }} />
+          </div>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            Registre seu próximo pensamento ainda hoje
+          </p>
+        </div>
       </div>
 
       {/* "Hoje" Card - Today Summary */}
@@ -262,12 +330,12 @@ const Dashboard = () => {
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
-              <span className="text-xl">{todayData.suggestionIcon}</span>
-              <p className="text-sm font-medium">{todayData.suggestion}</p>
-            </div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
+          <span className="text-xl">{todayData.suggestionIcon}</span>
+          <p className="text-sm font-medium">{todayData.suggestion}</p>
         </div>
 
         {/* Quick Action Buttons */}
