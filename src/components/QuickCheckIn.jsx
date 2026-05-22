@@ -13,7 +13,7 @@ const QUICK_CHECK_OPTIONS = [
   { id: 'other', label: 'Outro', icon: '✨' },
 ];
 
-const QuickCheckIn = ({ isOpen, onClose }) => {
+const QuickCheckIn = ({ isOpen, onClose, initialGoalId = '' }) => {
   const {
     createCheckIn,
     createJournalEntry,
@@ -30,20 +30,24 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
   const [relatedGoalId, setRelatedGoalId] = useState('');
   const [relatedHabitId, setRelatedHabitId] = useState('');
   const [relatedCategoryId, setRelatedCategoryId] = useState('');
+  const [progressDelta, setProgressDelta] = useState('');
+  const [completedTasksDelta, setCompletedTasksDelta] = useState('');
   const [saveToJournal, setSaveToJournal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const contextualGoal = goals.find((goal) => goal.id === initialGoalId);
 
   useEffect(() => {
     if (isOpen) {
-      // Reset form when modal opens
       setSelectedActivities([]);
       setNote('');
-      setRelatedGoalId('');
+      setRelatedGoalId(initialGoalId || '');
       setRelatedHabitId('');
       setRelatedCategoryId('');
+      setProgressDelta('');
+      setCompletedTasksDelta('');
       setSaveToJournal(false);
     }
-  }, [isOpen]);
+  }, [isOpen, initialGoalId]);
 
   const toggleActivity = (activityId) => {
     setSelectedActivities((prev) =>
@@ -55,7 +59,8 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (selectedActivities.length === 0 && !note) return;
+    if (!contextualGoal && selectedActivities.length === 0 && !note) return;
+    if (contextualGoal && !note.trim() && !progressDelta && !completedTasksDelta) return;
 
     setIsSaving(true);
 
@@ -66,9 +71,12 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
         activities: selectedActivities,
         note: note || '',
         goalId: relatedGoalId || null,
+        relatedGoalId: relatedGoalId || null,
         habitId: relatedHabitId || null,
+        relatedHabitId: relatedHabitId || null,
         categoryId: relatedCategoryId || null,
-        progressDelta: relatedGoalId ? 5 : 0,
+        progressDelta: progressDelta ? Number(progressDelta) : relatedGoalId && !contextualGoal ? 5 : 0,
+        completedTasksDelta: completedTasksDelta ? Number(completedTasksDelta) : 0,
       };
 
       await createCheckIn(checkInData);
@@ -111,7 +119,16 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold">O que você fez hoje?</h2>
+          <div>
+            <h2 className="text-xl font-bold">
+              {contextualGoal ? 'Check-in de objetivo' : 'O que você fez hoje?'}
+            </h2>
+            {contextualGoal && (
+              <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                Check-in para: {contextualGoal.title}
+              </p>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="p-2 rounded-lg transition hover:opacity-80"
@@ -122,53 +139,54 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Quick Activities */}
-          <div>
-            <label className="block text-sm font-medium mb-3">
-              Atividades rápidas
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {QUICK_CHECK_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => toggleActivity(option.id)}
-                  className={`p-3 rounded-lg border text-left transition flex items-center gap-2 ${
-                    selectedActivities.includes(option.id)
-                      ? 'border-transparent'
-                      : ''
-                  }`}
-                  style={{
-                    backgroundColor: selectedActivities.includes(option.id)
-                      ? 'var(--color-primary)'
-                      : 'var(--color-background)',
-                    borderColor: selectedActivities.includes(option.id)
-                      ? 'var(--color-primary)'
-                      : 'var(--color-border)',
-                    color: selectedActivities.includes(option.id)
-                      ? '#fff'
-                      : 'var(--color-text)',
-                  }}
-                >
-                  <span className="text-lg">{option.icon}</span>
-                  <span className="text-sm">{option.label}</span>
-                  {selectedActivities.includes(option.id) && (
-                    <Check size={16} className="ml-auto" />
-                  )}
-                </button>
-              ))}
+          {!contextualGoal && (
+            <div>
+              <label className="block text-sm font-medium mb-3">
+                Atividades rápidas
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {QUICK_CHECK_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => toggleActivity(option.id)}
+                    className={`p-3 rounded-lg border text-left transition flex items-center gap-2 ${
+                      selectedActivities.includes(option.id)
+                        ? 'border-transparent'
+                        : ''
+                    }`}
+                    style={{
+                      backgroundColor: selectedActivities.includes(option.id)
+                        ? 'var(--color-primary)'
+                        : 'var(--color-background)',
+                      borderColor: selectedActivities.includes(option.id)
+                        ? 'var(--color-primary)'
+                        : 'var(--color-border)',
+                      color: selectedActivities.includes(option.id)
+                        ? '#fff'
+                        : 'var(--color-text)',
+                    }}
+                  >
+                    <span className="text-lg">{option.icon}</span>
+                    <span className="text-sm">{option.label}</span>
+                    {selectedActivities.includes(option.id) && (
+                      <Check size={16} className="ml-auto" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Quick Note */}
           <div>
             <label className="block text-sm font-medium mb-2">
-              Observação rápida
+              {contextualGoal ? 'O que foi feito' : 'Observação rápida'}
             </label>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Algum detalhe importante do seu dia?"
+              placeholder={contextualGoal ? 'Descreva o avanço neste objetivo' : 'Algum detalhe importante do seu dia?'}
               className="w-full px-4 py-3 rounded-lg border h-20 resize-none"
               style={{
                 backgroundColor: 'var(--color-background)',
@@ -178,7 +196,43 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
             />
           </div>
 
-          {/* Relations */}
+          {contextualGoal && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-sm font-medium">
+                Progresso opcional
+                <input
+                  type="number"
+                  value={progressDelta}
+                  onChange={(e) => setProgressDelta(e.target.value)}
+                  placeholder="Ex: 5"
+                  className="mt-2 w-full px-4 py-2 rounded-lg border"
+                  style={{
+                    backgroundColor: 'var(--color-background)',
+                    borderColor: 'var(--color-border)',
+                    color: 'var(--color-text)',
+                  }}
+                />
+              </label>
+              <label className="block text-sm font-medium">
+                Tarefas concluídas opcional
+                <input
+                  type="number"
+                  min="0"
+                  value={completedTasksDelta}
+                  onChange={(e) => setCompletedTasksDelta(e.target.value)}
+                  placeholder="Ex: 1"
+                  className="mt-2 w-full px-4 py-2 rounded-lg border"
+                  style={{
+                    backgroundColor: 'var(--color-background)',
+                    borderColor: 'var(--color-border)',
+                    color: 'var(--color-text)',
+                  }}
+                />
+              </label>
+            </div>
+          )}
+
+          {!contextualGoal && (
           <div className="space-y-3">
             {/* Related Goal */}
             <div>
@@ -265,6 +319,7 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
               </select>
             </div>
           </div>
+          )}
 
           {/* Save to Journal Option */}
           <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--color-background)' }}>
@@ -295,7 +350,11 @@ const QuickCheckIn = ({ isOpen, onClose }) => {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSaving || (selectedActivities.length === 0 && !note)}
+            disabled={
+              isSaving ||
+              (!contextualGoal && selectedActivities.length === 0 && !note) ||
+              (contextualGoal && !note.trim() && !progressDelta && !completedTasksDelta)
+            }
             className="w-full py-3 px-4 rounded-lg font-semibold text-white flex items-center justify-center gap-2 transition duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: 'var(--color-primary)' }}
           >

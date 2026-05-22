@@ -15,6 +15,7 @@ import GardenPage from './pages/GardenPage';
 import SettingsPage from './pages/SettingsPage';
 import Navbar from './components/Navbar';
 import OnboardingModal from './components/OnboardingModal';
+import ReminderNotifier from './components/ReminderNotifier';
 
 
 function App() {
@@ -134,6 +135,7 @@ function App() {
       style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-text)' }}
     >
       <Navbar currentPage={currentPage} onPageChange={setCurrentPage} />
+      <ReminderNotifier />
 
       {dataLoading && (
         <div className="fixed top-16 left-0 right-0 bg-yellow-900 bg-opacity-50 p-2 text-center" style={{ color: 'var(--color-primary)' }}>

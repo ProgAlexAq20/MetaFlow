@@ -4,7 +4,9 @@ import {
   Droplets,
   Moon,
   Pill,
+  Play,
   Plus,
+  Pause,
   Trash2,
   Wind,
 } from 'lucide-react';
@@ -38,11 +40,35 @@ const HealthPage = () => {
   const {
     health = {},
     updateHealth,
-    addWaterIntake,
     weightEntries = [],
     createWeightEntry,
     deleteWeightEntry,
+    createReminder,
+    createCheckIn,
+    showToast,
   } = useContext(DataContext);
+
+  const normalizeMedicine = (item) => {
+    if (typeof item === 'string') {
+      const [nameDose, time = '08:00'] = item.split('-').map((part) => part.trim());
+      return {
+        id: nameDose || `${Date.now()}`,
+        name: nameDose || 'Remédio',
+        dose: '',
+        time,
+        frequency: 'Diário',
+        takenDates: {},
+      };
+    }
+    return {
+      id: item.id || `${item.name || 'med'}-${item.time || '08:00'}`,
+      name: item.name || 'Remédio',
+      dose: item.dose || '',
+      time: item.time || '08:00',
+      frequency: item.frequency || 'Diário',
+      takenDates: item.takenDates || {},
+    };
+  };
 
   const [weightForm, setWeightForm] = useState({
     weight: '',
@@ -53,22 +79,34 @@ const HealthPage = () => {
   });
   const [healthForm, setHealthForm] = useState({
     waterGoal: health?.waterGoal || 8,
+    waterGoalMl: health?.waterGoalMl || 2000,
+    waterCupMl: health?.waterCupMl || 250,
     bedtime: health?.bedtime || '22:30',
     wakeTime: health?.wakeTime || '06:30',
     nightModeReminder: health?.nightModeReminder !== false,
-    medicinesText: (health?.medicines || []).join('\n'),
     stretchBreakMinutes: health?.stretchBreakMinutes || 60,
     eyeBreakMinutes: health?.eyeBreakMinutes || 20,
     breathingMinutes: health?.breathingMinutes || 3,
   });
+  const [medicineForm, setMedicineForm] = useState({
+    name: '',
+    dose: '',
+    time: '08:00',
+    frequency: 'Diário',
+  });
+  const [activeTimer, setActiveTimer] = useState(null);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerSecondsLeft, setTimerSecondsLeft] = useState(0);
+  const [breathStepIndex, setBreathStepIndex] = useState(0);
 
   useEffect(() => {
     setHealthForm({
       waterGoal: health?.waterGoal || 8,
+      waterGoalMl: health?.waterGoalMl || 2000,
+      waterCupMl: health?.waterCupMl || 250,
       bedtime: health?.bedtime || '22:30',
       wakeTime: health?.wakeTime || '06:30',
       nightModeReminder: health?.nightModeReminder !== false,
-      medicinesText: (health?.medicines || []).join('\n'),
       stretchBreakMinutes: health?.stretchBreakMinutes || 60,
       eyeBreakMinutes: health?.eyeBreakMinutes || 20,
       breathingMinutes: health?.breathingMinutes || 3,
@@ -78,6 +116,11 @@ const HealthPage = () => {
       targetWeight: health?.targetWeight || prev.targetWeight || '',
     }));
   }, [health]);
+
+  const medicines = useMemo(
+    () => (health?.medicines || []).map(normalizeMedicine),
+    [health?.medicines]
+  );
 
   const sortedEntries = useMemo(
     () => [...weightEntries].sort((a, b) => new Date(b.date) - new Date(a.date)),
@@ -92,7 +135,16 @@ const HealthPage = () => {
   const weeklyVariation = calculateVariation(sortedEntries, 7);
   const monthlyVariation = calculateVariation(sortedEntries, 30);
   const todayKey = getTodayInputValue();
-  const waterToday = health?.waterIntakeDate === todayKey ? health?.waterIntakeToday || 0 : 0;
+  const waterMlToday = health?.waterIntakeDate === todayKey ? health?.waterIntakeMlToday || 0 : 0;
+  const waterGoalMl = Number(health?.waterGoalMl || healthForm.waterGoalMl || 2000);
+  const waterCupMl = Number(health?.waterCupMl || healthForm.waterCupMl || 250);
+  const nextSleepText = `${health?.bedtime || healthForm.bedtime || '22:30'} → ${health?.wakeTime || healthForm.wakeTime || '06:30'}`;
+  const breathCycle = [
+    { label: 'Inspirar', seconds: 4 },
+    { label: 'Segurar', seconds: 4 },
+    { label: 'Expirar', seconds: 6 },
+  ];
+  const currentBreathStep = breathCycle[breathStepIndex % breathCycle.length];
   const chartData = useMemo(
     () =>
       [...sortedEntries]
@@ -127,17 +179,137 @@ const HealthPage = () => {
     event.preventDefault();
     await updateHealth({
       waterGoal: Number(healthForm.waterGoal),
+      waterGoalMl: Number(healthForm.waterGoalMl),
+      waterCupMl: Number(healthForm.waterCupMl),
       bedtime: healthForm.bedtime,
       wakeTime: healthForm.wakeTime,
       nightModeReminder: healthForm.nightModeReminder,
-      medicines: healthForm.medicinesText
-        .split('\n')
-        .map((item) => item.trim())
-        .filter(Boolean),
       stretchBreakMinutes: Number(healthForm.stretchBreakMinutes),
       eyeBreakMinutes: Number(healthForm.eyeBreakMinutes),
       breathingMinutes: Number(healthForm.breathingMinutes),
     });
+  };
+
+  useEffect(() => {
+    if (!timerRunning || !activeTimer) return undefined;
+    const intervalId = window.setInterval(() => {
+      setTimerSecondsLeft((prev) => {
+        if (prev <= 1) {
+          setTimerRunning(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [timerRunning, activeTimer]);
+
+  useEffect(() => {
+    if (activeTimer !== 'breathing' || !timerRunning) return undefined;
+    const intervalId = window.setInterval(() => {
+      setBreathStepIndex((prev) => prev + 1);
+    }, currentBreathStep.seconds * 1000);
+    return () => window.clearInterval(intervalId);
+  }, [activeTimer, timerRunning, currentBreathStep.seconds]);
+
+  const startTimer = (type, seconds) => {
+    setActiveTimer(type);
+    setTimerSecondsLeft(seconds);
+    setTimerRunning(true);
+    setBreathStepIndex(0);
+  };
+
+  const stopTimer = () => {
+    setTimerRunning(false);
+  };
+
+  const registerWellbeingCheckIn = async (label) => {
+    await createCheckIn({
+      date: new Date().toISOString(),
+      categoryId: '',
+      activities: ['health'],
+      note: `${label} concluído`,
+      title: label,
+    });
+    setActiveTimer(null);
+    showToast(`${label} registrado`);
+  };
+
+  const addWaterCup = async () => {
+    const nextMl = waterMlToday + waterCupMl;
+    await updateHealth({
+      waterGoalMl,
+      waterCupMl,
+      waterIntakeMlToday: nextMl,
+      waterIntakeToday: Math.ceil(nextMl / waterCupMl),
+      waterIntakeDate: todayKey,
+    });
+  };
+
+  const createHealthReminder = async ({ title, description, time }) => {
+    await createReminder({
+      title,
+      description,
+      time,
+      repeat: 'daily',
+      weekDays: [],
+      notifyBeforeMinutes: 0,
+      active: true,
+    });
+  };
+
+  const createSleepReminders = async () => {
+    await updateHealth({
+      bedtime: healthForm.bedtime,
+      wakeTime: healthForm.wakeTime,
+      nightModeReminder: healthForm.nightModeReminder,
+    });
+    await createHealthReminder({
+      title: 'Hora de dormir',
+      description: 'Prepare-se para dormir e preservar sua rotina de sono.',
+      time: healthForm.bedtime,
+    });
+    if (healthForm.nightModeReminder) {
+      const [hour, minute] = healthForm.bedtime.split(':').map(Number);
+      const nightModeDate = new Date();
+      nightModeDate.setHours(hour, minute - 30, 0, 0);
+      await createHealthReminder({
+        title: 'Modo noturno',
+        description: 'Reduza telas e desacelere antes de dormir.',
+        time: dateUtils.formatDate(nightModeDate, 'HH:mm'),
+      });
+    }
+  };
+
+  const handleMedicineSubmit = async (event) => {
+    event.preventDefault();
+    const medicine = {
+      ...medicineForm,
+      id: `${Date.now()}-${medicineForm.name}`,
+      takenDates: {},
+    };
+    await updateHealth({ medicines: [...medicines, medicine] });
+    await createHealthReminder({
+      title: `Tomar ${medicine.name}`,
+      description: `${medicine.dose || 'Dose'} · ${medicine.frequency}`,
+      time: medicine.time,
+    });
+    setMedicineForm({ name: '', dose: '', time: '08:00', frequency: 'Diário' });
+  };
+
+  const markMedicineTaken = async (medicineId) => {
+    const nextMedicines = medicines.map((medicine) =>
+      medicine.id === medicineId
+        ? {
+            ...medicine,
+            takenDates: {
+              ...(medicine.takenDates || {}),
+              [todayKey]: new Date().toISOString(),
+            },
+          }
+        : medicine
+    );
+    await updateHealth({ medicines: nextMedicines });
   };
 
   return (
@@ -153,8 +325,8 @@ const HealthPage = () => {
         {[
           ['Peso atual', currentWeight ? `${currentWeight} kg` : 'Sem registro', Activity],
           ['Meta de peso', targetWeight ? `${targetWeight} kg` : 'Defina uma meta', Activity],
-          ['Até a meta', currentWeight && targetWeight ? `${Math.abs(distanceToGoal)} kg` : 'Aguardando', Activity],
-          ['Água hoje', `${waterToday}/${health?.waterGoal || 8} copos`, Droplets],
+          ['Próximo sono', nextSleepText, Moon],
+          ['Água hoje', `${waterMlToday}/${waterGoalMl} ml`, Droplets],
         ].map(([label, value, Icon]) => (
           <div key={label} className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
             <div className="flex items-center justify-between gap-3">
@@ -297,7 +469,7 @@ const HealthPage = () => {
             <p className="text-lg font-semibold">Rotina saudável</p>
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm font-medium">
-                Meta água
+                Meta água (copos)
                 <input
                   type="number"
                   min="1"
@@ -307,9 +479,33 @@ const HealthPage = () => {
                   style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
                 />
               </label>
+              <label className="block text-sm font-medium">
+                Meta em ml
+                <input
+                  type="number"
+                  min="100"
+                  step="50"
+                  value={healthForm.waterGoalMl}
+                  onChange={(event) => setHealthForm({ ...healthForm, waterGoalMl: event.target.value })}
+                  className="mt-2 w-full px-4 py-2 rounded-lg border"
+                  style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+                />
+              </label>
+              <label className="block text-sm font-medium">
+                Tamanho do copo (ml)
+                <input
+                  type="number"
+                  min="50"
+                  step="50"
+                  value={healthForm.waterCupMl}
+                  onChange={(event) => setHealthForm({ ...healthForm, waterCupMl: event.target.value })}
+                  className="mt-2 w-full px-4 py-2 rounded-lg border"
+                  style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+                />
+              </label>
               <div className="flex items-end">
-                <button type="button" onClick={() => addWaterIntake(1)} className="w-full px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-secondary)' }}>
-                  +1 copo
+                <button type="button" onClick={addWaterCup} className="w-full px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-secondary)' }}>
+                  +1 copo ({waterCupMl} ml)
                 </button>
               </div>
               <label className="block text-sm font-medium">
@@ -342,14 +538,10 @@ const HealthPage = () => {
               <span>Lembrete de modo noturno</span>
             </label>
             <label className="block text-sm font-medium">
-              Remédios
-              <textarea
-                value={healthForm.medicinesText}
-                onChange={(event) => setHealthForm({ ...healthForm, medicinesText: event.target.value })}
-                placeholder="Um remédio por linha, ex: Vitamina D - 08:00"
-                className="mt-2 w-full px-4 py-2 rounded-lg border h-24"
-                style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
-              />
+              Próximo horário de sono
+              <div className="mt-2 rounded-lg border px-4 py-3" style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}>
+                {nextSleepText}
+              </div>
             </label>
             <div className="grid grid-cols-3 gap-3">
               <label className="block text-sm font-medium">
@@ -386,19 +578,111 @@ const HealthPage = () => {
                 />
               </label>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <div className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)' }}><Moon size={16} /> Sono</div>
-              <div className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)' }}><Pill size={16} /> Remédios</div>
-              <div className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)' }}><Wind size={16} /> Respiração</div>
+            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+              <button type="button" onClick={createSleepReminders} className="rounded-lg border p-3 text-left" style={{ borderColor: 'var(--color-border)' }}><Moon size={16} /> Sono</button>
+              <button type="button" onClick={() => startTimer('breathing', Number(healthForm.breathingMinutes || 3) * 60)} className="rounded-lg border p-3 text-left" style={{ borderColor: 'var(--color-border)' }}><Wind size={16} /> Respirar</button>
+              <button type="button" onClick={() => createHealthReminder({ title: 'Beber água', description: 'Faça uma pausa rápida para beber água.', time: '10:00' })} className="rounded-lg border p-3 text-left" style={{ borderColor: 'var(--color-border)' }}><Droplets size={16} /> Água</button>
+              <button type="button" onClick={() => startTimer('stretch', Number(healthForm.stretchBreakMinutes || 5) * 60)} className="rounded-lg border p-3 text-left" style={{ borderColor: 'var(--color-border)' }}><Activity size={16} /> Alongar</button>
+              <button type="button" onClick={() => startTimer('eyes', Number(healthForm.eyeBreakMinutes || 1) * 60)} className="rounded-lg border p-3 text-left" style={{ borderColor: 'var(--color-border)' }}><Activity size={16} /> Olhos</button>
+              <button type="button" onClick={() => createHealthReminder({ title: 'Pausa para os olhos', description: 'Olhe para longe por 20 segundos.', time: '15:00' })} className="rounded-lg border p-3 text-left" style={{ borderColor: 'var(--color-border)' }}><BellIconLabel /> Lembrete</button>
             </div>
             <button type="submit" className="w-full px-4 py-3 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-primary)' }}>
               Salvar saúde
             </button>
           </form>
+
+          <form onSubmit={handleMedicineSubmit} className="p-6 rounded-lg border space-y-4" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+            <div className="flex items-center gap-2">
+              <Pill size={20} style={{ color: 'var(--color-primary)' }} />
+              <p className="text-lg font-semibold">Remédios</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                value={medicineForm.name}
+                onChange={(event) => setMedicineForm({ ...medicineForm, name: event.target.value })}
+                placeholder="Nome do remédio"
+                className="w-full px-4 py-2 rounded-lg border"
+                style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+                required
+              />
+              <input
+                value={medicineForm.dose}
+                onChange={(event) => setMedicineForm({ ...medicineForm, dose: event.target.value })}
+                placeholder="Dose"
+                className="w-full px-4 py-2 rounded-lg border"
+                style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+              />
+              <input
+                type="time"
+                value={medicineForm.time}
+                onChange={(event) => setMedicineForm({ ...medicineForm, time: event.target.value })}
+                className="w-full px-4 py-2 rounded-lg border"
+                style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+              />
+              <input
+                value={medicineForm.frequency}
+                onChange={(event) => setMedicineForm({ ...medicineForm, frequency: event.target.value })}
+                placeholder="Frequência"
+                className="w-full px-4 py-2 rounded-lg border"
+                style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+              />
+            </div>
+            <button type="submit" className="w-full px-4 py-3 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-primary)' }}>
+              Adicionar remédio e lembrete
+            </button>
+            <div className="space-y-2">
+              {medicines.map((medicine) => (
+                <div key={medicine.id} className="rounded-lg border p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
+                  <div>
+                    <p className="font-semibold">{medicine.name}</p>
+                    <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{medicine.dose || 'Sem dose'} · {medicine.time} · {medicine.frequency}</p>
+                  </div>
+                  <button type="button" onClick={() => markMedicineTaken(medicine.id)} className="px-3 py-2 rounded-lg text-white text-sm font-medium" style={{ backgroundColor: medicine.takenDates?.[todayKey] ? '#10B981' : 'var(--color-secondary)' }}>
+                    {medicine.takenDates?.[todayKey] ? 'Tomado hoje' : 'Marcar tomado'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </form>
         </div>
       </div>
+
+      {activeTimer && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="w-full max-w-md rounded-t-2xl border p-6 sm:rounded-2xl" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+            <p className="text-lg font-semibold">
+              {activeTimer === 'breathing' ? 'Respiração guiada' : activeTimer === 'stretch' ? 'Alongamento' : 'Pausa dos olhos'}
+            </p>
+            <div className="my-6 text-center">
+              {activeTimer === 'breathing' && (
+                <p className="text-3xl font-bold" style={{ color: 'var(--color-primary)' }}>{currentBreathStep.label}</p>
+              )}
+              <p className="text-5xl font-bold mt-3">{Math.floor(timerSecondsLeft / 60)}:{String(timerSecondsLeft % 60).padStart(2, '0')}</p>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setTimerRunning((prev) => !prev)} className="flex-1 px-4 py-3 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-primary)' }}>
+                {timerRunning ? <Pause size={18} className="inline mr-1" /> : <Play size={18} className="inline mr-1" />}
+                {timerRunning ? 'Pausar' : 'Iniciar'}
+              </button>
+              <button type="button" onClick={stopTimer} className="px-4 py-3 rounded-lg border font-medium" style={{ borderColor: 'var(--color-border)' }}>
+                Parar
+              </button>
+            </div>
+            {timerSecondsLeft === 0 && (
+              <button type="button" onClick={() => registerWellbeingCheckIn(activeTimer === 'breathing' ? 'Respiração' : activeTimer === 'stretch' ? 'Alongamento' : 'Pausa dos olhos')} className="mt-3 w-full px-4 py-3 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-secondary)' }}>
+                Registrar check-in de bem-estar
+              </button>
+            )}
+            <button type="button" onClick={() => setActiveTimer(null)} className="mt-3 w-full px-4 py-2 rounded-lg border font-medium" style={{ borderColor: 'var(--color-border)' }}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+const BellIconLabel = () => <span className="inline-block h-4 w-4 rounded-full" style={{ backgroundColor: 'var(--color-primary)' }} />;
 
 export default HealthPage;

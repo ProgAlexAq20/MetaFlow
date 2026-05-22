@@ -173,6 +173,8 @@ export const habitsService = {
     
     await setDoc(habitRef, {
       ...habitData,
+      dailyTargetChecks: Number(habitData.dailyTargetChecks || 1),
+      dailyChecks: habitData.dailyChecks || {},
       completedDates: [],
       currentStreak: 0,
       bestStreak: 0,

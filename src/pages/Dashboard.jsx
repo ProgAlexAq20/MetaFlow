@@ -39,10 +39,12 @@ const Dashboard = () => {
     loading,
   } = useContext(DataContext);
   const [isQuickCheckInOpen, setIsQuickCheckInOpen] = useState(false);
+  const [quickCheckInGoalId, setQuickCheckInGoalId] = useState('');
 
   // Listen for custom event to open quick check-in
   useEffect(() => {
-    const handleOpenQuickCheckIn = () => {
+    const handleOpenQuickCheckIn = (event) => {
+      setQuickCheckInGoalId(event.detail?.goalId || '');
       setIsQuickCheckInOpen(true);
     };
 
@@ -81,27 +83,23 @@ const Dashboard = () => {
   const markFirstPendingHabit = () => {
     const today = new Date();
     const pendingHabit = activeHabits.find((h) => {
-      const completedToday = (h.completedDates || []).some((date) => {
-        const d = new Date(date);
-        return (
-          d.getDate() === today.getDate() &&
-          d.getMonth() === today.getMonth() &&
-          d.getFullYear() === today.getFullYear()
-        );
-      });
-      return !completedToday && habitUtils.shouldCompleteToday(h);
+      return !habitUtils.isDailyTargetMet(h, today) && habitUtils.shouldCompleteToday(h);
     });
 
     if (pendingHabit) {
       const todayKey = dateUtils.getDateKey(today);
+      const targetChecks = habitUtils.getDailyTargetChecks(pendingHabit);
+      const nextCount = Math.min(targetChecks, habitUtils.getDailyCheckCount(pendingHabit, today) + 1);
+      const dailyChecks = { ...habitUtils.getDailyChecks(pendingHabit), [todayKey]: nextCount };
       const completedDates = pendingHabit.completedDates || [];
-      const alreadyCompleted = completedDates.some((date) => date.startsWith(todayKey));
-      const updatedDates = alreadyCompleted
-        ? completedDates
-        : [...completedDates, today.toISOString()];
+      const updatedDates = nextCount >= targetChecks && !habitUtils.hasCompletionOnDate(pendingHabit, today)
+        ? habitUtils.uniqueCompletedDates([...completedDates, today.toISOString()])
+        : completedDates;
       const currentStreak = habitUtils.calculateStreak(updatedDates);
       const bestStreak = Math.max(pendingHabit.bestStreak || 0, currentStreak);
       updateHabit(pendingHabit.id, {
+        dailyTargetChecks: targetChecks,
+        dailyChecks,
         completedDates: updatedDates,
         currentStreak,
         bestStreak,
@@ -115,15 +113,7 @@ const Dashboard = () => {
 
     // Pending habits (active habits not completed today)
     const pendingHabits = activeHabits.filter((h) => {
-      const completedToday = (h.completedDates || []).some((date) => {
-        const d = new Date(date);
-        return (
-          d.getDate() === today.getDate() &&
-          d.getMonth() === today.getMonth() &&
-          d.getFullYear() === today.getFullYear()
-        );
-      });
-      return !completedToday && habitUtils.shouldCompleteToday(h);
+      return !habitUtils.isDailyTargetMet(h, today) && habitUtils.shouldCompleteToday(h);
     });
 
     // Goals at risk
@@ -408,7 +398,10 @@ const Dashboard = () => {
         {/* Quick Action Buttons */}
         <div className="flex flex-wrap gap-3">
           <button
-            onClick={() => setIsQuickCheckInOpen(true)}
+            onClick={() => {
+              setQuickCheckInGoalId('');
+              setIsQuickCheckInOpen(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium transition hover:opacity-90"
             style={{ backgroundColor: 'var(--color-primary)' }}
           >
@@ -447,7 +440,10 @@ const Dashboard = () => {
 
           {todayData.atRiskGoals > 0 && (
             <button
-              onClick={() => setIsQuickCheckInOpen(true)}
+              onClick={() => {
+                setQuickCheckInGoalId('');
+                setIsQuickCheckInOpen(true);
+              }}
               className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-80"
               style={{
                 backgroundColor: 'var(--color-background)',
@@ -698,7 +694,10 @@ const Dashboard = () => {
                   )}
 
                   <button
-                    onClick={() => setIsQuickCheckInOpen(true)}
+                    onClick={() => {
+                      setQuickCheckInGoalId(goal.id);
+                      setIsQuickCheckInOpen(true);
+                    }}
                     className="px-3 py-2 rounded-lg text-sm font-medium transition hover:opacity-90"
                     style={{
                       backgroundColor: 'var(--color-background)',
@@ -718,7 +717,11 @@ const Dashboard = () => {
       {/* Quick Check-In Modal */}
       <QuickCheckIn
         isOpen={isQuickCheckInOpen}
-        onClose={() => setIsQuickCheckInOpen(false)}
+        initialGoalId={quickCheckInGoalId}
+        onClose={() => {
+          setIsQuickCheckInOpen(false);
+          setQuickCheckInGoalId('');
+        }}
       />
     </div>
   );

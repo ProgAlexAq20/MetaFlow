@@ -35,7 +35,7 @@ const GardenPage = () => {
     checkIn.date && dateUtils.getDateKey(checkIn.date) === todayKey
   ).length;
   const missingDrops = nextStage ? nextStage.min - drops : 0;
-  const alreadyWateredToday = garden?.lastWateredDate === todayKey;
+  const todayRewards = garden?.gardenDailyRewards?.[todayKey] || { drops: 0 };
 
   const waterGarden = async () => {
     await waterGardenToday();
@@ -109,7 +109,7 @@ const GardenPage = () => {
           <div className="p-5 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
             <p className="text-lg font-semibold mb-2">Regar com gotinha</p>
             <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
-              Arraste a gotinha até a semente ou toque nela para regar uma vez por dia.
+              Toque na gotinha para sincronizar as recompensas do dia. O limite é 3 gotas por dia.
             </p>
             <div className="flex items-center gap-4">
               <button
@@ -121,7 +121,6 @@ const GardenPage = () => {
                   setIsDropOverGarden(false);
                 }}
                 onClick={waterGarden}
-                disabled={alreadyWateredToday}
                 className="flex h-16 w-16 items-center justify-center rounded-full border transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-55"
                 style={{
                   color: '#fff',
@@ -142,9 +141,9 @@ const GardenPage = () => {
                 />
               </button>
               <div>
-                <p className="font-medium">{alreadyWateredToday ? 'Gotinha de hoje entregue' : 'Solte na planta'}</p>
+                <p className="font-medium">{todayRewards.drops || 0}/3 gotas hoje</p>
                 <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                  Bônus leve: +1 gota diária.
+                  Objetivos, hábitos e metas de checks alimentam o jardim.
                 </p>
               </div>
             </div>
@@ -165,11 +164,11 @@ const GardenPage = () => {
             <div className="space-y-3">
               <div className="flex items-center gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
                 <Sparkles size={18} style={{ color: 'var(--color-secondary)' }} />
-                <span>Cada check-in feito dá +1 gota.</span>
+                <span>Objetivo/check-in de objetivo no dia dá +1 gota.</span>
               </div>
               <div className="flex items-center gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
                 <Leaf size={18} style={{ color: 'var(--color-primary)' }} />
-                <span>Cada hábito concluído dá +2 gotas.</span>
+                <span>Hábito concluído dá +1 gota; meta múltipla completa dá +1 extra. Máximo: 3/dia.</span>
               </div>
             </div>
           </div>

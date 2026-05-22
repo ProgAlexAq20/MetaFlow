@@ -13,6 +13,7 @@ const HabitsPage = () => {
     categoryId: categories[0]?.id || '',
     frequency: 'daily',
     weekDays: [1, 2, 3, 4, 5], // Mon-Fri
+    dailyTargetChecks: 1,
     status: 'active',
   });
 
@@ -26,6 +27,7 @@ const HabitsPage = () => {
         categoryId: categories[0]?.id || '',
         frequency: 'daily',
         weekDays: [1, 2, 3, 4, 5],
+        dailyTargetChecks: 1,
         status: 'active',
       });
       setShowForm(false);
@@ -34,25 +36,34 @@ const HabitsPage = () => {
     }
   };
 
-  const toggleHabitToday = async (habit) => {
+  const updateHabitChecksToday = async (habit, direction = 1) => {
     if (savingHabitIds.has(habit.id)) return;
 
     setSavingHabitIds((prev) => new Set(prev).add(habit.id));
     const today = dateUtils.getDateKey();
-    const isCompletedToday = habitUtils.isCompletedToday(habit);
-    
-    const updatedDates = isCompletedToday
-      ? (habit.completedDates || []).filter((date) => {
-          const key = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
-            ? date
-            : dateUtils.getDateKey(date);
-          return key !== today;
-        })
-      : habitUtils.uniqueCompletedDates([...(habit.completedDates || []), new Date().toISOString()]);
+    const targetChecks = habitUtils.getDailyTargetChecks(habit);
+    const currentCount = habitUtils.getDailyCheckCount(habit);
+    const nextCount = Math.max(0, Math.min(targetChecks, currentCount + direction));
+    const dailyChecks = { ...habitUtils.getDailyChecks(habit) };
+    if (nextCount > 0) {
+      dailyChecks[today] = nextCount;
+    } else {
+      delete dailyChecks[today];
+    }
+
+    const completedDates = habit.completedDates || [];
+    const completedToday = nextCount >= targetChecks;
+    const updatedDates = completedToday
+      ? habitUtils.uniqueCompletedDates(
+          habitUtils.hasCompletionOnDate(habit) ? completedDates : [...completedDates, new Date().toISOString()]
+        )
+      : completedDates.filter((date) => dateUtils.getDateKey(date) !== today);
 
     try {
       const currentStreak = habitUtils.calculateStreak(updatedDates);
       await updateHabit(habit.id, {
+        dailyTargetChecks: targetChecks,
+        dailyChecks,
         completedDates: updatedDates,
         currentStreak,
         bestStreak: Math.max(habit.bestStreak || 0, currentStreak),
@@ -163,6 +174,26 @@ const HabitsPage = () => {
               </div>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium mb-2">Checks por dia</label>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={formData.dailyTargetChecks}
+                onChange={(e) => setFormData({ ...formData, dailyTargetChecks: Number(e.target.value) || 1 })}
+                className="w-full px-4 py-2 rounded-lg border"
+                style={{
+                  backgroundColor: 'var(--color-background)',
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              />
+              <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                Use 1 para hábitos simples ou mais para metas como estudar 3 vezes no dia.
+              </p>
+            </div>
+
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -205,7 +236,13 @@ const HabitsPage = () => {
         </div>
       ) : (
         <div className="grid gap-4">
-          {habits.map((habit) => (
+          {habits.map((habit) => {
+            const targetChecks = habitUtils.getDailyTargetChecks(habit);
+            const todayChecks = habitUtils.getDailyCheckCount(habit);
+            const checksLeft = Math.max(0, targetChecks - todayChecks);
+            const completedToday = todayChecks >= targetChecks;
+
+            return (
             <div
               key={habit.id}
               className="p-6 rounded-lg border"
@@ -238,22 +275,42 @@ const HabitsPage = () => {
                   <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
                     Melhor: {habit.bestStreak || 0} dias
                   </p>
+                  <p className="text-sm mt-3 font-medium">
+                    Hoje: {Math.min(todayChecks, targetChecks)}/{targetChecks} checks
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    {completedToday
+                      ? 'Dia concluído'
+                      : `Faltam ${checksLeft} ${checksLeft === 1 ? 'check' : 'checks'} para concluir o dia`}
+                  </p>
                 </div>
-                <button
-                  onClick={() => toggleHabitToday(habit)}
-                  disabled={savingHabitIds.has(habit.id)}
-                  className="p-2 rounded-lg transition hover:opacity-80 text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{
-                    backgroundColor: habitUtils.isCompletedToday(habit)
-                      ? 'var(--color-primary)'
-                      : 'var(--color-border)',
-                  }}
-                >
-                  <Check size={20} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateHabitChecksToday(habit, -1)}
+                    disabled={savingHabitIds.has(habit.id) || todayChecks <= 0}
+                    className="px-3 py-2 rounded-lg border text-sm font-medium transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ borderColor: 'var(--color-border)' }}
+                  >
+                    Desfazer
+                  </button>
+                  <button
+                    onClick={() => updateHabitChecksToday(habit, 1)}
+                    disabled={savingHabitIds.has(habit.id) || completedToday}
+                    className="px-3 py-2 rounded-lg transition hover:opacity-80 text-white disabled:cursor-not-allowed disabled:opacity-60 flex items-center gap-2"
+                    style={{
+                      backgroundColor: completedToday
+                        ? 'var(--color-primary)'
+                        : 'var(--color-secondary)',
+                    }}
+                  >
+                    <Check size={18} />
+                    {completedToday ? 'Concluído' : '+ check'}
+                  </button>
+                </div>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
     </div>

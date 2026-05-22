@@ -170,7 +170,6 @@ const RemindersPage = () => {
   const [sleepTarget, setSleepTarget] = useState(health?.sleepTarget || 8);
   const [sleepHours, setSleepHours] = useState(health?.sleepHours || 0);
   const [mood, setMood] = useState(health?.mood || 'Bom');
-  const [notifiedKeys, setNotifiedKeys] = useState({});
   const [fallbackReminder, setFallbackReminder] = useState(null);
 
   useEffect(() => {
@@ -180,65 +179,6 @@ const RemindersPage = () => {
       setMood(health.mood || 'Bom');
     }
   }, [health]);
-
-  useEffect(() => {
-    const icon = `${import.meta.env.BASE_URL}icon-192x192.png`;
-    const badge = `${import.meta.env.BASE_URL}icon-96x96.png`;
-    const notify = async () => {
-      const now = new Date();
-      reminders
-        .filter((reminder) => reminder.active)
-        .forEach(async (reminder) => {
-          const occurrence = getNotificationOccurrence(reminder, now);
-          if (!occurrence) return;
-
-          const notificationId = `${reminder.id}-${occurrence.toISOString()}`;
-          if (notifiedKeys[notificationId]) return;
-
-          const body = reminder.description || reminder.title || `${getReminderLabel(reminder)} às ${reminder.time}`;
-          const canUseNotification =
-            settings?.notificationsEnabled &&
-            typeof Notification !== 'undefined' &&
-            Notification.permission === 'granted';
-
-          try {
-            if (canUseNotification) {
-              if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
-                const registration = await navigator.serviceWorker.getRegistration();
-                if (registration) {
-                  await registration.showNotification('MetaFlow', {
-                    body,
-                    icon,
-                    badge,
-                    tag: notificationId,
-                    renotify: false,
-                    data: { page: 'reminders', reminderId: reminder.id },
-                    actions: [
-                      { action: 'open', title: 'Abrir' },
-                    ],
-                  });
-                } else {
-                  new Notification('MetaFlow', { body, icon, tag: notificationId });
-                }
-              } else {
-                new Notification('MetaFlow', { body, icon, tag: notificationId });
-              }
-            } else {
-              setFallbackReminder(reminder);
-            }
-          } catch (error) {
-            console.error('Erro ao disparar notificação:', error);
-            setFallbackReminder(reminder);
-          }
-          setNotifiedKeys((prev) => ({ ...prev, [notificationId]: true }));
-        });
-    };
-
-    notify();
-    const intervalId = setInterval(notify, 30000);
-
-    return () => clearInterval(intervalId);
-  }, [reminders, settings, notifiedKeys]);
 
   const visibleReminders = useMemo(
     () => reminders.filter((reminder) => reminder.active),
@@ -364,12 +304,17 @@ const RemindersPage = () => {
       return;
     }
     const now = new Date().toISOString();
-    const today = now.split('T')[0];
+    const today = dateUtils.getDateKey(now);
+    const targetChecks = habitUtils.getDailyTargetChecks(habit);
+    const nextCount = Math.min(targetChecks, habitUtils.getDailyCheckCount(habit, now) + 1);
+    const dailyChecks = { ...habitUtils.getDailyChecks(habit), [today]: nextCount };
     const completedDates = habit.completedDates || [];
-    const updatedDates = completedDates.some((date) => date.startsWith(today))
-      ? completedDates
-      : [...completedDates, now];
+    const updatedDates = nextCount >= targetChecks && !habitUtils.hasCompletionOnDate(habit, now)
+      ? habitUtils.uniqueCompletedDates([...completedDates, now])
+      : completedDates;
     await updateHabit(habit.id, {
+      dailyTargetChecks: targetChecks,
+      dailyChecks,
       completedDates: updatedDates,
       currentStreak: habitUtils.calculateStreak(updatedDates),
       bestStreak: Math.max(habit.bestStreak || 0, habitUtils.calculateStreak(updatedDates)),
@@ -393,7 +338,7 @@ const RemindersPage = () => {
   const currentMonthLabel = dateUtils.formatDate(displayDate, 'MMMM yyyy');
 
   return (
-    <div className="container mx-auto p-4 pb-20">
+    <div className="container mx-auto p-3 pb-28 sm:p-4 sm:pb-20">
       <div className="mb-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -402,10 +347,10 @@ const RemindersPage = () => {
               Mantenha hábitos, tarefas e metas alinhados com lembretes e notificações.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
             <button
               onClick={() => setShowForm((prev) => !prev)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-white transition hover:opacity-90"
+              className="flex min-h-[44px] items-center justify-center gap-2 px-4 py-2 rounded-lg text-white transition hover:opacity-90"
               style={{ backgroundColor: 'var(--color-primary)' }}
             >
               <Plus size={18} />
@@ -413,7 +358,7 @@ const RemindersPage = () => {
             </button>
             <button
               onClick={handleNotificationToggle}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-90"
+              className="flex min-h-[44px] items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition hover:opacity-90"
               style={{
                 backgroundColor: settings?.notificationsEnabled ? '#10B981' : 'var(--color-background)',
                 color: settings?.notificationsEnabled ? 'white' : 'var(--color-text)',
@@ -429,7 +374,7 @@ const RemindersPage = () => {
 
       {fallbackReminder && (
         <div className="mb-6 rounded-lg border p-4" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-primary)' }}>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.16em]" style={{ color: 'var(--color-text-secondary)' }}>Lembrete agora</p>
               <p className="text-xl font-semibold">{fallbackReminder.title}</p>
@@ -437,7 +382,7 @@ const RemindersPage = () => {
                 {fallbackReminder.description || `${getReminderLabel(fallbackReminder)} às ${fallbackReminder.time}`}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex md:flex-wrap">
               <button type="button" onClick={() => handleCompleteReminder(fallbackReminder)} className="px-3 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: 'var(--color-primary)' }}>
                 <CheckCircle2 size={16} className="inline mr-1" /> Concluir
               </button>
@@ -458,7 +403,7 @@ const RemindersPage = () => {
       <div className="grid gap-6 lg:grid-cols-[1.3fr_0.9fr]">
         <div className="space-y-6">
           <div
-            className="p-6 rounded-lg border"
+            className="p-4 rounded-lg border sm:p-6"
             style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}
           >
             <div className="flex items-center gap-3 mb-4">
@@ -494,7 +439,7 @@ const RemindersPage = () => {
             )}
           </div>
 
-          <div className="p-6 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+          <div className="p-4 rounded-lg border sm:p-6" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <p className="text-lg font-semibold">Acompanhamento de saúde</p>
@@ -507,7 +452,7 @@ const RemindersPage = () => {
                 <p className="text-xl font-semibold">{waterToday}/{health?.waterGoal || 8} copos</p>
               </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-3 mb-4">
+            <div className="grid gap-3 sm:grid-cols-3 mb-4">
               <button
                 onClick={() => addWaterIntake(1)}
                 className="px-4 py-3 rounded-lg text-white font-medium transition hover:opacity-90"
@@ -573,7 +518,7 @@ const RemindersPage = () => {
           </div>
 
           {showForm && (
-            <div className="p-6 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+            <div className="max-h-[82vh] overflow-y-auto p-4 rounded-lg border sm:p-6" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)' }}>
                   <Plus size={24} style={{ color: '#3B82F6' }} />
@@ -655,7 +600,7 @@ const RemindersPage = () => {
                     ))}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium mb-2">Lembrete antes</label>
                     <select
@@ -717,7 +662,7 @@ const RemindersPage = () => {
                     </select>
                   </div>
                 </div>
-                <div className="flex gap-3 pt-4">
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row">
                   <button
                     type="submit"
                     className="flex-1 px-4 py-2 rounded-lg text-white font-medium transition hover:opacity-90"
@@ -738,8 +683,8 @@ const RemindersPage = () => {
             </div>
           )}
 
-          <div className="p-6 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
-            <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="p-4 rounded-lg border sm:p-6" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+            <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-lg font-semibold">Agenda</p>
                 <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
@@ -765,12 +710,12 @@ const RemindersPage = () => {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-7 gap-2 text-center mb-3 text-xs uppercase tracking-[0.15em] text-slate-500">
+            <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[10px] uppercase tracking-[0.08em] text-slate-500 sm:gap-2 sm:text-xs sm:tracking-[0.15em]">
               {DAY_LABELS.map((label) => (
                 <div key={label}>{label}</div>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {monthDays.map((date, index) => {
                 const isToday = date && dateUtils.isSameDay(date, new Date());
                 const hasReminder = date && reminders.some((reminder) => isScheduledForDate({ ...reminder, active: true }, date));
@@ -781,7 +726,7 @@ const RemindersPage = () => {
                     key={`${date?.toISOString() || 'empty'}-${index}`}
                     type="button"
                     onClick={() => date && setSelectedDate(date)}
-                    className={`h-14 rounded-lg border text-sm transition ${date ? 'cursor-pointer' : ''}`}
+                    className={`h-11 rounded-lg border text-xs transition sm:h-14 sm:text-sm ${date ? 'cursor-pointer' : ''}`}
                     style={{
                       backgroundColor: isSelected ? 'var(--color-primary)' : 'var(--color-background)',
                       borderColor: isSelected ? 'transparent' : 'var(--color-border)',
@@ -789,7 +734,7 @@ const RemindersPage = () => {
                     }}
                   >
                     {date ? (
-                      <div className="flex h-full flex-col items-center justify-between py-2">
+                      <div className="flex h-full flex-col items-center justify-between py-1.5 sm:py-2">
                         <span>{date.getDate()}</span>
                         {hasReminder && <span className="h-2 w-2 rounded-full bg-pink-500" />}
                       </div>
@@ -814,8 +759,8 @@ const RemindersPage = () => {
                         opacity: reminder.active === false ? 0.72 : 1,
                       }}
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <p className="font-semibold">{reminder.title}</p>
                           <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                             {reminder.description || getReminderLabel(reminder)} · {reminder.time}
@@ -826,11 +771,11 @@ const RemindersPage = () => {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                           <button
                             type="button"
                             onClick={() => updateReminder(reminder.id, { active: reminder.active === false })}
-                            className="px-3 py-2 rounded-lg border text-sm font-medium"
+                            className="min-h-[40px] px-3 py-2 rounded-lg border text-sm font-medium"
                             style={{ borderColor: 'var(--color-border)' }}
                             title={reminder.active === false ? 'Ativar lembrete' : 'Pausar lembrete'}
                           >
@@ -839,7 +784,7 @@ const RemindersPage = () => {
                           <button
                             type="button"
                             onClick={() => handleCompleteReminder(reminder)}
-                            className="p-2 rounded-lg text-white"
+                            className="min-h-[40px] rounded-lg p-2 text-white"
                             style={{ backgroundColor: 'var(--color-primary)' }}
                             title="Concluir lembrete"
                           >
@@ -848,7 +793,7 @@ const RemindersPage = () => {
                           <button
                             type="button"
                             onClick={() => handleEditReminder(reminder)}
-                            className="p-2 rounded-lg border"
+                            className="min-h-[40px] rounded-lg border p-2"
                             style={{ borderColor: 'var(--color-border)' }}
                             title="Editar lembrete"
                           >
@@ -857,7 +802,7 @@ const RemindersPage = () => {
                           <button
                             type="button"
                             onClick={() => deleteReminder(reminder.id)}
-                            className="p-2 rounded-lg border"
+                            className="min-h-[40px] rounded-lg border p-2"
                             style={{ borderColor: 'var(--color-border)' }}
                             title="Remover lembrete"
                           >
@@ -874,7 +819,7 @@ const RemindersPage = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="p-6 rounded-lg border" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
+          <div className="p-4 rounded-lg border sm:p-6" style={{ backgroundColor: 'var(--color-card)', borderColor: 'var(--color-border)' }}>
             <p className="text-lg font-semibold mb-3">Próximos lembretes</p>
             {visibleReminders.length === 0 ? (
               <p style={{ color: 'var(--color-text-secondary)' }}>Nenhum lembrete ativo.</p>
@@ -884,8 +829,8 @@ const RemindersPage = () => {
                   const next = getNextOccurrence(reminder);
                   return (
                     <div key={reminder.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
                           <p className="font-semibold">{reminder.title}</p>
                           <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                             {next ? dateUtils.formatDate(next, 'dd/MM HH:mm') : 'Próxima vez não encontrada'} · {getReminderLabel(reminder)}

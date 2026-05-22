@@ -153,6 +153,28 @@ export const goalUtils = {
 // ============================================================================
 
 export const habitUtils = {
+  getDailyTargetChecks(habit) {
+    const target = Number(habit?.dailyTargetChecks || 1);
+    return Number.isFinite(target) && target > 0 ? Math.max(1, Math.floor(target)) : 1;
+  },
+
+  getDailyChecks(habit) {
+    return habit?.dailyChecks || habit?.dailyCheckDates || {};
+  },
+
+  getDailyCheckCount(habit, date = new Date()) {
+    const targetKey = dateUtils.getDateKey(date);
+    const checks = habitUtils.getDailyChecks(habit);
+    const storedCount = Number(checks?.[targetKey] || 0);
+
+    if (storedCount > 0) return storedCount;
+    return habitUtils.hasCompletionOnDate(habit, date) ? habitUtils.getDailyTargetChecks(habit) : 0;
+  },
+
+  isDailyTargetMet(habit, date = new Date()) {
+    return habitUtils.getDailyCheckCount(habit, date) >= habitUtils.getDailyTargetChecks(habit);
+  },
+
   hasCompletionOnDate(habit, date = new Date()) {
     const targetKey = dateUtils.getDateKey(date);
     return (habit.completedDates || []).some((completedDate) => {
@@ -177,15 +199,26 @@ export const habitUtils = {
 
   // Check if habit was completed today
   isCompletedToday(habit) {
-    return habitUtils.hasCompletionOnDate(habit);
+    return habitUtils.isDailyTargetMet(habit);
+  },
+
+  getDailyProgressText(habit, date = new Date()) {
+    const count = habitUtils.getDailyCheckCount(habit, date);
+    const target = habitUtils.getDailyTargetChecks(habit);
+    return `${Math.min(count, target)}/${target}`;
   },
 
   // Calculate current streak
   calculateStreak(completedDates = []) {
     if (!completedDates || completedDates.length === 0) return 0;
 
-    const dates = completedDates
-      .map((date) => new Date(date))
+    const dates = habitUtils.uniqueCompletedDates(completedDates)
+      .map((date) => {
+        if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return new Date(`${date}T00:00:00`);
+        }
+        return new Date(date);
+      })
       .sort((a, b) => b - a);
 
     let streak = 0;

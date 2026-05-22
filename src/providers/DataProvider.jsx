@@ -34,7 +34,7 @@ export const DataProvider = ({ children }) => {
   const [toast, setToast] = useState(null);
   const unsubscribersRef = useRef([]);
   const toastTimeoutRef = useRef(null);
-  const habitRewardLocksRef = useRef(new Set());
+  const gardenSyncLocksRef = useRef(new Set());
 
   const createOptimisticId = () => {
     return typeof crypto !== 'undefined' && crypto.randomUUID
@@ -52,7 +52,10 @@ export const DataProvider = ({ children }) => {
 
   const getDefaultHealth = () => ({
     waterGoal: 8,
+    waterGoalMl: 2000,
+    waterCupMl: 250,
     waterIntakeToday: 0,
+    waterIntakeMlToday: 0,
     waterIntakeDate: dateUtils.getDateKey(),
     sleepTarget: 8,
     sleepHours: 0,
@@ -74,6 +77,7 @@ export const DataProvider = ({ children }) => {
     totalDrops: 0,
     stage: 'semente',
     lastRewardAt: null,
+    gardenDailyRewards: {},
     createdAt: new Date().toISOString(),
   });
 
@@ -303,17 +307,108 @@ export const DataProvider = ({ children }) => {
     [user, goals, showToast]
   );
 
+  const calculateGardenDailyReward = useCallback((sourceCheckIns = checkIns, sourceHabits = habits, date = new Date()) => {
+    const dayKey = dateUtils.getDateKey(date);
+    const goalDone = sourceCheckIns.some((checkIn) => {
+      const checkInGoalId = checkIn.goalId || checkIn.relatedGoalId;
+      return checkInGoalId && checkIn.date && dateUtils.getDateKey(checkIn.date) === dayKey;
+    });
+    const habitDone = sourceHabits.some((habit) => habitUtils.isDailyTargetMet(habit, dayKey));
+    const habitDailyChecksDone = sourceHabits.some(
+      (habit) => habitUtils.getDailyTargetChecks(habit) > 1 && habitUtils.isDailyTargetMet(habit, dayKey)
+    );
+    const drops = [goalDone, habitDone, habitDailyChecksDone].filter(Boolean).length;
+
+    return {
+      goalDone,
+      habitDone,
+      habitDailyChecksDone,
+      drops: Math.min(3, drops),
+    };
+  }, [checkIns, habits]);
+
+  const syncGardenRewardsForToday = useCallback(
+    async (sourceCheckIns = checkIns, sourceHabits = habits) => {
+      if (!user) return;
+      const dayKey = dateUtils.getDateKey();
+      const previousGarden = garden || getDefaultGarden();
+      const previousRewards = previousGarden.gardenDailyRewards || {};
+      const previousDayReward = previousRewards[dayKey] || {
+        goalDone: false,
+        habitDone: false,
+        habitDailyChecksDone: false,
+        drops: 0,
+      };
+      const nextDayReward = calculateGardenDailyReward(sourceCheckIns, sourceHabits);
+      const sameReward =
+        previousDayReward.goalDone === nextDayReward.goalDone &&
+        previousDayReward.habitDone === nextDayReward.habitDone &&
+        previousDayReward.habitDailyChecksDone === nextDayReward.habitDailyChecksDone &&
+        Number(previousDayReward.drops || 0) === nextDayReward.drops;
+
+      if (sameReward) return;
+
+      const lockKey = `${dayKey}:${JSON.stringify(nextDayReward)}`;
+      if (gardenSyncLocksRef.current.has(lockKey)) return;
+      gardenSyncLocksRef.current.add(lockKey);
+
+      const delta = nextDayReward.drops - Number(previousDayReward.drops || 0);
+      const nextDrops = Math.max(0, (previousGarden.drops || 0) + delta);
+      const nextGarden = {
+        ...previousGarden,
+        drops: nextDrops,
+        totalDrops: Math.max(0, (previousGarden.totalDrops || previousGarden.drops || 0) + Math.max(delta, 0)),
+        stage: getGardenStage(nextDrops),
+        lastRewardAt: delta > 0 ? new Date().toISOString() : previousGarden.lastRewardAt || null,
+        gardenDailyRewards: {
+          ...previousRewards,
+          [dayKey]: nextDayReward,
+        },
+      };
+
+      setGarden(nextGarden);
+
+      try {
+        await gardenService.updateGarden(user.uid, nextGarden);
+      } catch (err) {
+        setGarden(previousGarden);
+        const message = err?.message || 'Erro ao atualizar o Jardim MetaFlow';
+        setError(message);
+        showToast(message, 'error');
+        throw err;
+      } finally {
+        gardenSyncLocksRef.current.delete(lockKey);
+      }
+    },
+    [user, garden, checkIns, habits, calculateGardenDailyReward, showToast]
+  );
+
   const awardGardenDrops = useCallback(
     async (amount) => {
       if (!user || !amount) return;
       const previousGarden = garden || getDefaultGarden();
-      const nextDrops = (previousGarden.drops || 0) + amount;
+      const todayKey = dateUtils.getDateKey();
+      const previousRewards = previousGarden.gardenDailyRewards || {};
+      const previousDayReward = previousRewards[todayKey] || {};
+      const availableToday = Math.max(0, 3 - Number(previousDayReward.drops || 0));
+      const safeAmount = Math.min(Number(amount) || 0, availableToday);
+      if (safeAmount <= 0) return;
+      const nextDrops = (previousGarden.drops || 0) + safeAmount;
       const nextGarden = {
         ...previousGarden,
-        drops: nextDrops,
-        totalDrops: (previousGarden.totalDrops || 0) + amount,
+        drops: (previousGarden.drops || 0) + safeAmount,
+        totalDrops: (previousGarden.totalDrops || 0) + safeAmount,
         stage: getGardenStage(nextDrops),
         lastRewardAt: new Date().toISOString(),
+        gardenDailyRewards: {
+          ...previousRewards,
+          [todayKey]: {
+            goalDone: Boolean(previousDayReward.goalDone),
+            habitDone: Boolean(previousDayReward.habitDone),
+            habitDailyChecksDone: Boolean(previousDayReward.habitDailyChecksDone),
+            drops: Math.min(3, Number(previousDayReward.drops || 0) + safeAmount),
+          },
+        },
       };
 
       setGarden(nextGarden);
@@ -331,39 +426,22 @@ export const DataProvider = ({ children }) => {
   const waterGardenToday = useCallback(
     async () => {
       if (!user) throw new Error('User not authenticated');
-      const todayKey = dateUtils.getDateKey();
-      const previousGarden = garden || getDefaultGarden();
-
-      if (previousGarden.lastWateredDate === todayKey) {
-        showToast('O jardim já recebeu uma gotinha hoje');
-        return;
-      }
-
-      const nextDrops = (previousGarden.drops || 0) + 1;
-      const nextGarden = {
-        ...previousGarden,
-        drops: nextDrops,
-        totalDrops: (previousGarden.totalDrops || 0) + 1,
-        stage: getGardenStage(nextDrops),
-        lastRewardAt: new Date().toISOString(),
-        lastWateredDate: todayKey,
-      };
-
-      setGarden(nextGarden);
-      showToast('Gotinha entregue ao jardim');
-
       try {
-        await gardenService.updateGarden(user.uid, nextGarden);
+        await syncGardenRewardsForToday();
+        showToast('Jardim sincronizado com as ações de hoje');
       } catch (err) {
-        setGarden(previousGarden);
-        const message = err?.message || 'Erro ao regar o jardim';
-        setError(message);
-        showToast(message, 'error');
         throw err;
       }
     },
-    [user, garden, showToast]
+    [user, syncGardenRewardsForToday, showToast]
   );
+
+  useEffect(() => {
+    if (!user || !garden) return;
+    syncGardenRewardsForToday().catch((err) => {
+      console.error('Garden reward sync error:', err);
+    });
+  }, [user, garden, checkIns, habits, syncGardenRewardsForToday]);
 
   const createHabit = useCallback(
     async (habitData) => {
@@ -372,6 +450,8 @@ export const DataProvider = ({ children }) => {
       const optimisticHabit = {
         id,
         ...habitData,
+        dailyTargetChecks: habitUtils.getDailyTargetChecks(habitData),
+        dailyChecks: habitData.dailyChecks || {},
         completedDates: [],
         currentStreak: 0,
         bestStreak: 0,
@@ -399,38 +479,20 @@ export const DataProvider = ({ children }) => {
     async (habitId, habitData) => {
       if (!user) throw new Error('User not authenticated');
       const previousHabits = habits;
-      const currentHabit = habits.find((habit) => habit.id === habitId);
-      const wasCompletedToday = currentHabit ? habitUtils.isCompletedToday(currentHabit) : false;
       const normalizedHabitData = habitData.completedDates
         ? { ...habitData, completedDates: habitUtils.uniqueCompletedDates(habitData.completedDates) }
         : habitData;
-      const nextHabit = currentHabit ? { ...currentHabit, ...normalizedHabitData } : null;
-      const isCompletedToday = nextHabit ? habitUtils.isCompletedToday(nextHabit) : false;
-      const rewardKey = `${habitId}:${dateUtils.getDateKey()}`;
-      const shouldAwardGarden = !wasCompletedToday && isCompletedToday && !habitRewardLocksRef.current.has(rewardKey);
-
-      if (shouldAwardGarden) {
-        habitRewardLocksRef.current.add(rewardKey);
-      }
-
-      setHabits((prev) =>
-        prev.map((habit) =>
-          habit.id === habitId
-            ? { ...habit, ...normalizedHabitData, updatedAt: new Date().toISOString() }
-            : habit
-        )
+      const nextHabits = habits.map((habit) =>
+        habit.id === habitId ? { ...habit, ...normalizedHabitData, updatedAt: new Date().toISOString() } : habit
       );
+
+      setHabits(nextHabits);
       showToast('Hábito atualizado');
 
       try {
         await habitsService.updateHabit(user.uid, habitId, normalizedHabitData);
-        if (shouldAwardGarden) {
-          await awardGardenDrops(2);
-        }
+        await syncGardenRewardsForToday(checkIns, nextHabits);
       } catch (err) {
-        if (shouldAwardGarden) {
-          habitRewardLocksRef.current.delete(rewardKey);
-        }
         setHabits(previousHabits);
         const message = err?.message || 'Erro ao atualizar hábito, tente novamente';
         setError(message);
@@ -438,18 +500,20 @@ export const DataProvider = ({ children }) => {
         throw err;
       }
     },
-    [user, habits, showToast, awardGardenDrops]
+    [user, habits, checkIns, showToast, syncGardenRewardsForToday]
   );
 
   const deleteHabit = useCallback(
     async (habitId) => {
       if (!user) throw new Error('User not authenticated');
       const previousHabits = habits;
-      setHabits((prev) => prev.filter((habit) => habit.id !== habitId));
+      const nextHabits = habits.filter((habit) => habit.id !== habitId);
+      setHabits(nextHabits);
       showToast('Hábito removido');
 
       try {
         await habitsService.deleteHabit(user.uid, habitId);
+        await syncGardenRewardsForToday(checkIns, nextHabits);
       } catch (err) {
         setHabits(previousHabits);
         const message = err?.message || 'Erro ao remover hábito, tente novamente';
@@ -458,7 +522,7 @@ export const DataProvider = ({ children }) => {
         throw err;
       }
     },
-    [user, habits, showToast]
+    [user, habits, checkIns, showToast, syncGardenRewardsForToday]
   );
 
   const createCategory = useCallback(
@@ -636,7 +700,7 @@ export const DataProvider = ({ children }) => {
   );
 
   const updateReminder = useCallback(
-    async (reminderId, reminderData) => {
+    async (reminderId, reminderData, options = {}) => {
       if (!user) throw new Error('User not authenticated');
       const previousReminders = reminders;
       setReminders((prev) =>
@@ -646,7 +710,9 @@ export const DataProvider = ({ children }) => {
             : reminder
         )
       );
-      showToast('Lembrete atualizado');
+      if (!options.silent) {
+        showToast('Lembrete atualizado');
+      }
 
       try {
         await remindersService.updateReminder(user.uid, reminderId, reminderData);
@@ -709,13 +775,24 @@ export const DataProvider = ({ children }) => {
       const currentIntake = previousHealth?.waterIntakeDate === todayKey
         ? previousHealth?.waterIntakeToday || 0
         : 0;
+      const currentMl = previousHealth?.waterIntakeDate === todayKey
+        ? previousHealth?.waterIntakeMlToday || 0
+        : 0;
+      const cupMl = Number(previousHealth?.waterCupMl || 250);
       const updatedAmount = currentIntake + amount;
-      setHealth((prev) => ({ ...prev, waterIntakeToday: updatedAmount, waterIntakeDate: todayKey }));
+      const updatedMl = currentMl + (Number(amount) || 1) * cupMl;
+      setHealth((prev) => ({
+        ...prev,
+        waterIntakeToday: updatedAmount,
+        waterIntakeMlToday: updatedMl,
+        waterIntakeDate: todayKey,
+      }));
       showToast('Hidratação registrada');
 
       try {
         await healthService.updateHealth(user.uid, {
           waterIntakeToday: updatedAmount,
+          waterIntakeMlToday: updatedMl,
           waterIntakeDate: todayKey,
         });
       } catch (err) {
@@ -830,14 +907,27 @@ export const DataProvider = ({ children }) => {
       const id = createOptimisticId();
       const completedAt = checkInData.date || new Date().toISOString();
       const completedKey = dateUtils.getDateKey(completedAt);
+      const effectiveHabitId = checkInData.habitId || checkInData.relatedHabitId || null;
+      const effectiveGoalId = checkInData.goalId || checkInData.relatedGoalId || null;
 
-      if (checkInData.habitId) {
-        const alreadyCheckedIn = checkIns.some((checkIn) =>
-          checkIn.habitId === checkInData.habitId && dateUtils.getDateKey(checkIn.date) === completedKey
-        );
+      if (effectiveHabitId) {
+        const habitToCheck = habits.find((habit) => habit.id === effectiveHabitId);
+        const targetChecks = habitUtils.getDailyTargetChecks(habitToCheck);
+        const currentChecks = habitToCheck ? habitUtils.getDailyCheckCount(habitToCheck, completedAt) : 0;
+        const sameDayCheckIns = checkIns.filter((checkIn) =>
+          (checkIn.habitId || checkIn.relatedHabitId) === effectiveHabitId &&
+          checkIn.date &&
+          dateUtils.getDateKey(checkIn.date) === completedKey
+        ).length;
+        const checksSoFar = Math.max(currentChecks, sameDayCheckIns);
 
-        if (alreadyCheckedIn) {
-          showToast('Este hábito já foi marcado hoje', 'error');
+        if (checksSoFar >= targetChecks) {
+          showToast(
+            targetChecks > 1
+              ? `Meta diária deste hábito já concluída (${targetChecks}/${targetChecks})`
+              : 'Este hábito já foi marcado hoje',
+            'error'
+          );
           return null;
         }
       }
@@ -845,6 +935,10 @@ export const DataProvider = ({ children }) => {
       const optimisticCheckIn = {
         id,
         ...checkInData,
+        goalId: effectiveGoalId,
+        relatedGoalId: effectiveGoalId,
+        habitId: effectiveHabitId,
+        relatedHabitId: effectiveHabitId,
         date: completedAt,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -858,22 +952,27 @@ export const DataProvider = ({ children }) => {
 
       let habitUpdate = null;
       let goalUpdate = null;
-      let gardenDropsEarned = 1;
 
-      if (checkInData.habitId) {
-        const habitToUpdate = habits.find((habit) => habit.id === checkInData.habitId);
+      if (effectiveHabitId) {
+        const habitToUpdate = habits.find((habit) => habit.id === effectiveHabitId);
         if (habitToUpdate) {
+          const targetChecks = habitUtils.getDailyTargetChecks(habitToUpdate);
+          const dailyChecks = { ...habitUtils.getDailyChecks(habitToUpdate) };
+          const nextCheckCount = Math.min(targetChecks, habitUtils.getDailyCheckCount(habitToUpdate, completedAt) + 1);
+          dailyChecks[completedKey] = nextCheckCount;
           const completedDates = habitToUpdate.completedDates || [];
-          const alreadyCompleted = habitUtils.hasCompletionOnDate(habitToUpdate, completedAt);
-          const updatedDates = alreadyCompleted
-            ? completedDates
-            : habitUtils.uniqueCompletedDates([...completedDates, completedAt]);
-          if (!alreadyCompleted) {
-            gardenDropsEarned += 2;
-          }
+          const reachesTarget = nextCheckCount >= targetChecks;
+          const hasCompletedDate = habitUtils.hasCompletionOnDate(habitToUpdate, completedAt);
+          const updatedDates = reachesTarget && !hasCompletedDate
+            ? habitUtils.uniqueCompletedDates([...completedDates, completedAt])
+            : reachesTarget
+            ? habitUtils.uniqueCompletedDates(completedDates)
+            : completedDates.filter((date) => dateUtils.getDateKey(date) !== completedKey);
           const currentStreak = habitUtils.calculateStreak(updatedDates);
           const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
           habitUpdate = {
+            dailyTargetChecks: targetChecks,
+            dailyChecks,
             completedDates: updatedDates,
             currentStreak,
             bestStreak,
@@ -887,11 +986,11 @@ export const DataProvider = ({ children }) => {
         }
       }
 
-      if (checkInData.goalId) {
-        const goalToUpdate = goals.find((goal) => goal.id === checkInData.goalId);
+      if (effectiveGoalId) {
+        const goalToUpdate = goals.find((goal) => goal.id === effectiveGoalId);
         if (goalToUpdate) {
           const currentValue = goalToUpdate.currentValue || 0;
-          const progressDelta = checkInData.progressDelta || 0;
+          const progressDelta = Number(checkInData.progressDelta || 0);
           const updatedGoal = {
             ...goalToUpdate,
             currentValue: Math.min(currentValue + progressDelta, goalToUpdate.targetValue || 100),
@@ -903,8 +1002,14 @@ export const DataProvider = ({ children }) => {
             updatedAt: new Date().toISOString(),
           };
 
-          if (goalToUpdate.progressType === 'tasks' && checkInData.taskId) {
-            updatedGoal.completedTasks = (goalToUpdate.completedTasks || 0) + 1;
+          if (goalToUpdate.progressType === 'tasks') {
+            const completedTasksDelta = Number(checkInData.completedTasksDelta || (checkInData.taskId ? 1 : 0));
+            if (completedTasksDelta > 0) {
+              updatedGoal.completedTasks = Math.min(
+                (goalToUpdate.completedTasks || 0) + completedTasksDelta,
+                goalToUpdate.totalTasks || Number.MAX_SAFE_INTEGER
+              );
+            }
           }
 
           goalUpdate = updatedGoal;
@@ -914,14 +1019,26 @@ export const DataProvider = ({ children }) => {
         }
       }
 
+      const nextCheckIns = [optimisticCheckIn, ...checkIns];
+      const nextHabits = habitUpdate && effectiveHabitId
+        ? habits.map((habit) => (habit.id === effectiveHabitId ? { ...habit, ...habitUpdate } : habit))
+        : habits;
+
       showToast('Check-in salvo');
 
       try {
-        await checkInsService.createCheckIn(user.uid, checkInData, id);
-        if (habitUpdate && checkInData.habitId) {
-          await habitsService.updateHabit(user.uid, checkInData.habitId, habitUpdate);
+        await checkInsService.createCheckIn(user.uid, {
+          ...checkInData,
+          goalId: effectiveGoalId,
+          relatedGoalId: effectiveGoalId,
+          habitId: effectiveHabitId,
+          relatedHabitId: effectiveHabitId,
+          date: completedAt,
+        }, id);
+        if (habitUpdate && effectiveHabitId) {
+          await habitsService.updateHabit(user.uid, effectiveHabitId, habitUpdate);
         }
-        if (goalUpdate && checkInData.goalId) {
+        if (goalUpdate && effectiveGoalId) {
           const goalUpdateFields = {
             currentValue: goalUpdate.currentValue,
             status: goalUpdate.status,
@@ -932,9 +1049,9 @@ export const DataProvider = ({ children }) => {
             goalUpdateFields.completedTasks = goalUpdate.completedTasks;
           }
 
-          await goalsService.updateGoal(user.uid, checkInData.goalId, goalUpdateFields);
+          await goalsService.updateGoal(user.uid, effectiveGoalId, goalUpdateFields);
         }
-        await awardGardenDrops(gardenDropsEarned);
+        await syncGardenRewardsForToday(nextCheckIns, nextHabits);
         return id;
       } catch (err) {
         setCheckIns(previousCheckIns);
@@ -946,7 +1063,7 @@ export const DataProvider = ({ children }) => {
         throw err;
       }
     },
-    [user, checkIns, habits, goals, showToast, awardGardenDrops]
+    [user, checkIns, habits, goals, showToast, syncGardenRewardsForToday]
   );
 
   const completeReminder = useCallback(
@@ -1012,30 +1129,40 @@ export const DataProvider = ({ children }) => {
       const prevHabits = habits;
       const prevGoals = goals;
       const targetCheckIn = checkIns.find((checkIn) => checkIn.id === checkInId);
+      const targetHabitId = targetCheckIn?.habitId || targetCheckIn?.relatedHabitId;
+      const targetGoalId = targetCheckIn?.goalId || targetCheckIn?.relatedGoalId;
 
       setCheckIns((prev) => prev.filter((checkIn) => checkIn.id !== checkInId));
 
-      if (targetCheckIn?.habitId) {
-        const habitToUpdate = habits.find((habit) => habit.id === targetCheckIn.habitId);
+      if (targetHabitId) {
+        const habitToUpdate = habits.find((habit) => habit.id === targetHabitId);
         if (habitToUpdate) {
-          const removedDate = targetCheckIn.date.split('T')[0];
-          const updatedDates = (habitToUpdate.completedDates || []).filter(
-            (date) => !date.startsWith(removedDate)
-          );
+          const removedDate = dateUtils.getDateKey(targetCheckIn.date);
+          const targetChecks = habitUtils.getDailyTargetChecks(habitToUpdate);
+          const dailyChecks = { ...habitUtils.getDailyChecks(habitToUpdate) };
+          const nextCount = Math.max(0, habitUtils.getDailyCheckCount(habitToUpdate, targetCheckIn.date) - 1);
+          if (nextCount > 0) {
+            dailyChecks[removedDate] = nextCount;
+          } else {
+            delete dailyChecks[removedDate];
+          }
+          const updatedDates = nextCount >= targetChecks
+            ? habitUtils.uniqueCompletedDates(habitToUpdate.completedDates || [])
+            : (habitToUpdate.completedDates || []).filter((date) => dateUtils.getDateKey(date) !== removedDate);
           const currentStreak = habitUtils.calculateStreak(updatedDates);
           const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
           setHabits((prev) =>
             prev.map((habit) =>
               habit.id === habitToUpdate.id
-                ? { ...habit, completedDates: updatedDates, currentStreak, bestStreak, updatedAt: new Date().toISOString() }
+                ? { ...habit, dailyChecks, completedDates: updatedDates, currentStreak, bestStreak, updatedAt: new Date().toISOString() }
                 : habit
             )
           );
         }
       }
 
-      if (targetCheckIn?.goalId) {
-        const goalToUpdate = goals.find((goal) => goal.id === targetCheckIn.goalId);
+      if (targetGoalId) {
+        const goalToUpdate = goals.find((goal) => goal.id === targetGoalId);
         if (goalToUpdate) {
           const updatedGoal = {
             ...goalToUpdate,
@@ -1054,24 +1181,33 @@ export const DataProvider = ({ children }) => {
 
       try {
         await checkInsService.deleteCheckIn(user.uid, checkInId);
-        if (targetCheckIn?.habitId) {
-          const habitToUpdate = habits.find((habit) => habit.id === targetCheckIn.habitId);
+        if (targetHabitId) {
+          const habitToUpdate = habits.find((habit) => habit.id === targetHabitId);
           if (habitToUpdate) {
-            const removedDate = targetCheckIn.date.split('T')[0];
-            const updatedDates = (habitToUpdate.completedDates || []).filter(
-              (date) => !date.startsWith(removedDate)
-            );
+            const removedDate = dateUtils.getDateKey(targetCheckIn.date);
+            const targetChecks = habitUtils.getDailyTargetChecks(habitToUpdate);
+            const dailyChecks = { ...habitUtils.getDailyChecks(habitToUpdate) };
+            const nextCount = Math.max(0, habitUtils.getDailyCheckCount(habitToUpdate, targetCheckIn.date) - 1);
+            if (nextCount > 0) {
+              dailyChecks[removedDate] = nextCount;
+            } else {
+              delete dailyChecks[removedDate];
+            }
+            const updatedDates = nextCount >= targetChecks
+              ? habitUtils.uniqueCompletedDates(habitToUpdate.completedDates || [])
+              : (habitToUpdate.completedDates || []).filter((date) => dateUtils.getDateKey(date) !== removedDate);
             const currentStreak = habitUtils.calculateStreak(updatedDates);
             const bestStreak = Math.max(habitToUpdate.bestStreak || 0, currentStreak);
             await habitsService.updateHabit(user.uid, habitToUpdate.id, {
+              dailyChecks,
               completedDates: updatedDates,
               currentStreak,
               bestStreak,
             });
           }
         }
-        if (targetCheckIn?.goalId) {
-          const goalToUpdate = goals.find((goal) => goal.id === targetCheckIn.goalId);
+        if (targetGoalId) {
+          const goalToUpdate = goals.find((goal) => goal.id === targetGoalId);
           if (goalToUpdate) {
             const updatedCurrentValue = Math.max((goalToUpdate.currentValue || 0) - (targetCheckIn.progressDelta || 0), 0);
             const updatedGoal = {
@@ -1082,6 +1218,23 @@ export const DataProvider = ({ children }) => {
             await goalsService.updateGoal(user.uid, goalToUpdate.id, updatedGoal);
           }
         }
+        const nextCheckIns = prevCheckIns.filter((checkIn) => checkIn.id !== checkInId);
+        const nextHabits = targetHabitId
+          ? habits.map((habit) => {
+              if (habit.id !== targetHabitId) return habit;
+              const removedDate = dateUtils.getDateKey(targetCheckIn.date);
+              const targetChecks = habitUtils.getDailyTargetChecks(habit);
+              const dailyChecks = { ...habitUtils.getDailyChecks(habit) };
+              const nextCount = Math.max(0, habitUtils.getDailyCheckCount(habit, targetCheckIn.date) - 1);
+              if (nextCount > 0) dailyChecks[removedDate] = nextCount;
+              else delete dailyChecks[removedDate];
+              const completedDates = nextCount >= targetChecks
+                ? habitUtils.uniqueCompletedDates(habit.completedDates || [])
+                : (habit.completedDates || []).filter((date) => dateUtils.getDateKey(date) !== removedDate);
+              return { ...habit, dailyChecks, completedDates };
+            })
+          : habits;
+        await syncGardenRewardsForToday(nextCheckIns, nextHabits);
       } catch (err) {
         setCheckIns(prevCheckIns);
         setHabits(prevHabits);
@@ -1092,7 +1245,7 @@ export const DataProvider = ({ children }) => {
         throw err;
       }
     },
-    [user, checkIns, habits, goals, showToast]
+    [user, checkIns, habits, goals, showToast, syncGardenRewardsForToday]
   );
 
   const updateSettings = useCallback(
